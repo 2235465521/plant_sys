@@ -1,0 +1,43 @@
+SET NAMES utf8mb4;
+-- 恢复 id=35192（粘冠草），执行前请确认表中无相同主键
+INSERT INTO plant_classification_import (
+    id,
+    division,
+    subclass,
+    taxonomic_order,
+    family,
+    genus,
+    vernacular_name,
+    alternative_names_zh,
+    scientific_name,
+    taxonomic_provenance,
+    synonyms,
+    morphology_text,
+    medicinal_shape,
+    distribution_china,
+    distribution_abroad,
+    habitat,
+    is_medicinal_food_homologous,
+    image_url,
+    image_server_paths
+) VALUES (
+    35192,
+    '被子植物',
+    '木兰亚纲',
+    '菊目',
+    '菊科',
+    '黏冠草属',
+    '粘冠草',
+    NULL,
+    'Myriactis wightii DC. in Wight',
+    'Myriactis wightii DC., Wight, Contr. 10, 1834 et Prodr. 5: 308, 1836; Hook. f., Fl. Brit. Ind. 3: 247, 1881',
+    NULL,
+    '一年生草本，高20-90厘米，侧根多数。茎直立，基部径达6毫米，通常自中上部分枝，少有自基部分枝或全株不分枝而近葶状的。分枝斜升或外展。全部茎枝被白色稠密或疏稀的长或短柔毛，或中下部几无毛而光滑。叶互生，常有腋生枝或叶簇。中部茎叶宽卵形、卵形或长卵形，长5-8厘米，宽3-6厘米沙有近大头羽裂状的，而顶裂片与非裂叶的叶片同形。自中部向下叶渐大，向上叶渐小，有时植株全部叶较小，中部叶长仅2厘米，宽1.5厘米。全部叶两面被长或短柔毛，沿脉的毛较密，或仅沿脉有柔，其余无毛；下部沿叶柄下延成狭翅，基部扩大或扩大贴茎，边缘有深圆锯齿或锯齿或缺刻状锯齿，接花序下部的叶或侧裂片无齿或常无齿。头状花序少数或多数在茎枝顶端排成疏散的伞房状花序或伞房状圆锥花序，有长花梗，梗长5厘米，或排成稀疏的总状花序，头状花序少数（通常3个）而花序梗亦短。头状花序径达1.2厘米，半球形；总苞片几2层，近等长，长4毫米，狭长圆形，无毛，顶端常繸状撕裂。外围舌状雌花约2层，舌片线形，顶端2裂。中央两性花管状，檐部宽钟状，顶端5齿裂。瘦果压扁，长2.5毫米，倒披针形，边缘脉状加厚，顶端有短喙，喙顶有粘质分泌物。花果期6-11月。',
+    NULL,
+    '云南、四川、贵州东北部（赫章）、西藏',
+    '印度、斯里兰卡',
+    '海拔2100-3600米的山坡林下或山坡草地、溪旁或沟边近水处',
+    NULL,
+    NULL,
+    NULL
+);
