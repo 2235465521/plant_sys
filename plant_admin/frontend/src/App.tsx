@@ -265,7 +265,7 @@ function AppShell() {
         if (d.taxonomic_order) next.set("torder", d.taxonomic_order);
         if (d.family) next.set("family", d.family);
         next.delete("level");
-        nav({ pathname: "/plants", search: `?${next.toString()}`, replace: true });
+        nav({ pathname: "/plants", search: `?${next.toString()}` }, { replace: true });
       })
       .catch(() => {});
     // sp and nav are stable; tree vars cover all relevant URL changes
