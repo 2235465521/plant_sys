@@ -28,22 +28,10 @@ function RegisterForm({
   return (
     <Card className="plant-auth-card" title="注册账号">
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-        先选择注册身份，再填写登录用户名与密码。
+        填写登录用户名即可注册，初始密码默认为 <strong>zkbz2026</strong>。
       </Typography.Paragraph>
       <Form layout="vertical" onFinish={onFinish} initialValues={{ role: "user" }} size="large">
-        <Form.Item name="role" label="注册身份" rules={[{ required: true, message: "请选择注册身份" }]}>
-          <Select
-            placeholder="请选择管理员或普通用户"
-            options={
-              status.allow_admin
-                ? [
-                    { value: "admin", label: "管理员（可增删改查）" },
-                    { value: "user", label: "普通用户（仅查询与导出）" },
-                  ]
-                : [{ value: "user", label: "普通用户（仅查询与导出）" }]
-            }
-          />
-        </Form.Item>
+
         <Form.Item
           name="username"
           label="登录用户名"
@@ -52,25 +40,7 @@ function RegisterForm({
         >
           <Input autoComplete="username" placeholder="例如 zhangsan" />
         </Form.Item>
-        <Form.Item name="password" label="密码" rules={[{ required: true, min: 6, max: 128 }]}>
-          <Input.Password autoComplete="new-password" placeholder="至少 6 位" />
-        </Form.Item>
-        <Form.Item
-          name="password_confirm"
-          label="确认密码"
-          dependencies={["password"]}
-          rules={[
-            { required: true },
-            ({ getFieldValue }) => ({
-              validator(_, value) {
-                if (!value || getFieldValue("password") === value) return Promise.resolve();
-                return Promise.reject(new Error("两次密码不一致"));
-              },
-            }),
-          ]}
-        >
-          <Input.Password autoComplete="new-password" placeholder="请再次输入密码" />
-        </Form.Item>
+
         <Button type="primary" htmlType="submit" block size="large">
           注册并登录
         </Button>
@@ -95,16 +65,14 @@ export default function RegisterPage() {
 
   async function onFinish(v: {
     username: string;
-    password: string;
-    password_confirm: string;
     role?: "admin" | "user";
   }) {
     if (!status) return;
     try {
       const { data } = await api.post<LoginRes>("/auth/register", {
         username: v.username,
-        password: v.password,
-        password_confirm: v.password_confirm,
+        password: "zkbz2026",
+        password_confirm: "zkbz2026",
         role: status.allow_admin ? ((v.role ?? "user") as "admin" | "user") : "user",
       });
       setToken(data.access_token);
@@ -150,7 +118,7 @@ export default function RegisterPage() {
     <div className="plant-auth-bg">
       <div className="plant-auth-left">
         <h1>中国植物库</h1>
-        <p>创建管理控制台账号。请选择身份并设置登录用户名与密码，注册成功后将自动进入系统。</p>
+        <p>创建管理控制台普通用户账号。请输入您的用户名进行注册，初始密码默认为 zkbz2026，注册成功后将自动进入系统。</p>
       </div>
       <div className="plant-auth-right">
         <RegisterForm status={status} onFinish={onFinish} />

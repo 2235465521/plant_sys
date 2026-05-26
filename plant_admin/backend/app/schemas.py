@@ -52,6 +52,10 @@ class UserBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserRoleUpdate(BaseModel):
+    role: Literal["admin", "user"]
+
+
 class PlantBase(BaseModel):
     division: Optional[str] = None
     subclass: Optional[str] = None

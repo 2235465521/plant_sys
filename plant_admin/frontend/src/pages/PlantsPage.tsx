@@ -181,9 +181,19 @@ export default function PlantsPage() {
     [q, divisions, subclasses, torders, families, genera],
   );
 
+  const filterCrumbsWithLevel = useMemo(() => {
+    const arr: { param: string; value: string }[] = [];
+    divisions.forEach((v) => arr.push({ param: "division", value: v }));
+    subclasses.forEach((v) => arr.push({ param: "subclass", value: v }));
+    torders.forEach((v) => arr.push({ param: "torder", value: v }));
+    families.forEach((v) => arr.push({ param: "family", value: v }));
+    genera.forEach((v) => arr.push({ param: "genus", value: v }));
+    return arr;
+  }, [divisions, subclasses, torders, families, genera]);
+
   const filterCrumbs = useMemo(
-    () => [...divisions, ...subclasses, ...torders, ...families, ...genera],
-    [divisions, subclasses, torders, families, genera],
+    () => filterCrumbsWithLevel.map(c => c.value),
+    [filterCrumbsWithLevel],
   );
 
   const [loading, setLoading] = useState(false);
@@ -502,17 +512,32 @@ export default function PlantsPage() {
   const levelLabel = { division: "门", subclass: "亚纲", taxonomic_order: "目", family: "科", genus: "属" }[
     taxonLevel
   ];
-  const crumbsFromSelected = selected
-    ? [
-        selected.division,
-        selected.subclass,
-        selected.taxonomic_order,
-        selected.family,
-        selected.genus,
-      ].filter(Boolean)
-    : [];
+  const crumbsFromSelectedWithLevel = useMemo(() => {
+    if (!selected) return [];
+    const arr: { param: string; value: string }[] = [];
+    if (selected.division) arr.push({ param: "division", value: selected.division });
+    if (selected.subclass) arr.push({ param: "subclass", value: selected.subclass });
+    if (selected.taxonomic_order) arr.push({ param: "torder", value: selected.taxonomic_order });
+    if (selected.family) arr.push({ param: "family", value: selected.family });
+    if (selected.genus) arr.push({ param: "genus", value: selected.genus });
+    return arr;
+  }, [selected]);
 
-  const crumbs = filterCrumbs.length > 0 ? filterCrumbs : crumbsFromSelected;
+  const crumbsWithLevel = filterCrumbsWithLevel.length > 0 ? filterCrumbsWithLevel : crumbsFromSelectedWithLevel;
+  const crumbs = crumbsWithLevel.map(c => c.value);
+
+  function handleCrumbClick(index: number) {
+    const next = new URLSearchParams(searchParams);
+    const pathParams = ["division", "subclass", "torder", "family", "genus"];
+    pathParams.forEach(p => next.delete(p));
+    next.delete("level");
+    
+    for (let i = 0; i <= index; i++) {
+      const c = crumbsWithLevel[i];
+      next.append(c.param, c.value);
+    }
+    setSearchParams(next);
+  }
 
   const pickedForTitle = searchParams.getAll(taxParamKey(taxonLevel)).filter(Boolean);
   const titleTaxon =
@@ -672,11 +697,17 @@ export default function PlantsPage() {
   return (
     <>
       <nav className="mb-6 flex flex-wrap items-center gap-2 font-label-sm text-label-sm text-on-surface-variant">
-        {crumbs.length > 0 ? (
-          crumbs.map((c, i) => (
-            <span key={`${c}-${i}`} className="flex items-center gap-2">
+        {crumbsWithLevel.length > 0 ? (
+          crumbsWithLevel.map((c, i) => (
+            <span key={`${c.value}-${i}`} className="flex items-center gap-2">
               {i > 0 && <BreadcrumbChevron />}
-              <span className={i === crumbs.length - 1 ? "font-semibold text-primary" : ""}>{c}</span>
+              <button
+                type="button"
+                onClick={() => handleCrumbClick(i)}
+                className={i === crumbsWithLevel.length - 1 ? "font-semibold text-primary cursor-default" : "hover:text-primary hover:underline"}
+              >
+                {c.value}
+              </button>
             </span>
           ))
         ) : (
@@ -862,7 +893,6 @@ export default function PlantsPage() {
                 rowSelection={{
                   selectedRowKeys: tableSelectedKeys,
                   onChange: setTableSelectedKeys,
-                  selections: [Table.SELECTION_ALL, Table.SELECTION_INVERT, Table.SELECTION_NONE],
                 }}
                 columns={[
                   { title: "ID", dataIndex: "id", width: 64 },

@@ -64,3 +64,27 @@ def login(body: LoginRequest, conn: pymysql.connections.Connection = Depends(get
 @router.get("/me", response_model=UserBrief)
 def me(user: PlantAdminUser = Depends(get_current_user)):
     return UserBrief(id=user.id, username=user.username, role=user.role)
+
+
+@router.get("/users", response_model=list[UserBrief])
+def list_users(conn: pymysql.connections.Connection = Depends(get_db), current_user: PlantAdminUser = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "仅管理员可查看用户列表")
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, username, role FROM plant_admin_users WHERE is_active = 1 ORDER BY id DESC")
+        rows = cur.fetchall()
+    return [UserBrief(**r) for r in rows]
+
+
+from app.schemas import UserRoleUpdate
+
+@router.put("/users/{user_id}/role")
+def update_user_role(user_id: int, body: UserRoleUpdate, conn: pymysql.connections.Connection = Depends(get_db), current_user: PlantAdminUser = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "仅管理员可修改用户权限")
+    if user_id == current_user.id:
+        raise HTTPException(400, "不能修改自己的权限")
+    with conn.cursor() as cur:
+        cur.execute("UPDATE plant_admin_users SET role = %s WHERE id = %s", (body.role, user_id))
+    conn.commit()
+    return {"status": "ok"}

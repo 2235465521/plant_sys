@@ -1,3 +1,4 @@
+import { Modal, Table, Button, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import {
   Link,
@@ -35,7 +36,7 @@ const LEVEL_LABELS: Record<TaxonLevel, string> = {
   genus: "属",
 };
 
-function decodeJwtPayload(token: string): { username?: string; role?: string } {
+function decodeJwtPayload(token: string): { username?: string; role?: string; sub?: number } {
   try {
     const p = token.split(".")[1];
     return JSON.parse(atob(p.replace(/-/g, "+").replace(/_/g, "/")));
@@ -44,12 +45,64 @@ function decodeJwtPayload(token: string): { username?: string; role?: string } {
   }
 }
 
+function UserManagementModal({ open, onCancel, currentUserId }: { open: boolean; onCancel: () => void; currentUserId?: number }) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setLoading(true);
+      api.get("/auth/users")
+        .then(res => setUsers(res.data))
+        .catch(e => message.error(String(e)))
+        .finally(() => setLoading(false));
+    }
+  }, [open]);
+
+  const toggleRole = async (u: any) => {
+    const nextRole = u.role === "admin" ? "user" : "admin";
+    try {
+      await api.put(`/auth/users/${u.id}/role`, { role: nextRole });
+      message.success("修改成功");
+      setUsers(users.map(x => x.id === u.id ? { ...x, role: nextRole } : x));
+    } catch(e: any) {
+      message.error(e.response?.data?.detail || "修改失败");
+    }
+  };
+
+  return (
+    <Modal title="用户管理" open={open} onCancel={onCancel} footer={null} width={600}>
+      <Table 
+        dataSource={users} 
+        loading={loading} 
+        rowKey="id" 
+        pagination={false}
+        size="small"
+        columns={[
+          { title: "ID", dataIndex: "id", width: 60 },
+          { title: "用户名", dataIndex: "username" },
+          { title: "角色", dataIndex: "role", render: r => r === "admin" ? "管理员" : "普通用户" },
+          { 
+            title: "操作", 
+            render: (_, u) => (
+              <Button size="small" onClick={() => toggleRole(u)} disabled={u.id === currentUserId}>
+                {u.role === "admin" ? "降级为普通用户" : "设为管理员"}
+              </Button>
+            )
+          }
+        ]}
+      />
+    </Modal>
+  );
+}
+
 function AppShell() {
   const loc = useLocation();
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const onPlantsPage = loc.pathname === "/plants";
   const [sidebarFlash, setSidebarFlash] = useState(false);
+  const [userModalOpen, setUserModalOpen] = useState(false);
 
   // Tree path: each level's selected value (empty string = not selected)
   const treeDiv = onPlantsPage ? (sp.get("division") ?? "") : "";
@@ -58,16 +111,21 @@ function AppShell() {
   const treeFam = onPlantsPage ? (sp.get("family") ?? "") : "";
   const treeGen = onPlantsPage ? (sp.get("genus") ?? "") : "";
 
-  // Sidebar shows the first unselected level's children
-  const activeDisplayLevel: TaxonLevel = !treeDiv
-    ? "division"
-    : !treeSub
-      ? "subclass"
-      : !treeOrd
-        ? "taxonomic_order"
-        : !treeFam
-          ? "family"
-          : "genus";
+  // Next level to display: one position after the LAST set level in the URL.
+  // Using "last set + 1" (not "first gap") correctly handles skipped null levels.
+  // e.g. ?division=蕨类植物&family=金星蕨科 → lastSetIdx=3 → display "genus"
+  const urlDerivedDisplayLevel: TaxonLevel = (() => {
+    const lastSetIdx = Math.max(
+      treeDiv ? 0 : -1,
+      treeSub ? 1 : -1,
+      treeOrd ? 2 : -1,
+      treeFam ? 3 : -1,
+      treeGen ? 4 : -1,
+    );
+    return (LEVEL_ORDER[
+      lastSetIdx === -1 ? 0 : Math.min(lastSetIdx + 1, LEVEL_ORDER.length - 1)
+    ] ?? "division") as TaxonLevel;
+  })();
 
   // Deepest selected level – forwarded to PlantsPage via OutletCtx for its title
   const taxonLevel: TaxonLevel = treeGen
@@ -96,6 +154,11 @@ function AppShell() {
   const [taxonItems, setTaxonItems] = useState<TaxonBucketDto[]>([]);
   const [taxonLoading, setTaxonLoading] = useState(false);
   const [taxonSidebarSearch, setTaxonSidebarSearch] = useState("");
+  // When intermediate levels contain all-NULL data, auto-advance to the next non-empty level;
+  // this override records which level was actually surfaced so the sidebar header and click
+  // handlers use the right level name instead of the URL-derived one.
+  const [displayLevelOverride, setDisplayLevelOverride] = useState<TaxonLevel | null>(null);
+  const activeDisplayLevel: TaxonLevel = displayLevelOverride ?? urlDerivedDisplayLevel;
 
   useEffect(() => {
     setTaxonSidebarSearch("");
@@ -117,43 +180,57 @@ function AppShell() {
     return () => window.clearTimeout(t);
   }, [sidebarFlash]);
 
-  // Load children for the active display level, filtered by selected ancestors
+  // Load children for the next display level; if a level returns all-NULL (0 items),
+  // automatically advance to the next level until data is found.
   useEffect(() => {
     if (!onPlantsPage) {
       setTaxonItems([]);
+      setDisplayLevelOverride(null);
       return;
     }
     let cancelled = false;
-    const level: TaxonLevel = !treeDiv
-      ? "division"
-      : !treeSub
-        ? "subclass"
-        : !treeOrd
-          ? "taxonomic_order"
-          : !treeFam
-            ? "family"
-            : "genus";
-    const params: Record<string, string> = { field: level };
-    if (treeDiv) params.division = treeDiv;
-    if (treeSub) params.subclass = treeSub;
-    if (treeOrd) params.torder = treeOrd;
-    if (treeFam) params.family = treeFam;
+    // Determine the starting level index (one past the deepest set ancestor)
+    const lastSetIdx = Math.max(
+      treeDiv ? 0 : -1,
+      treeSub ? 1 : -1,
+      treeOrd ? 2 : -1,
+      treeFam ? 3 : -1,
+      treeGen ? 4 : -1,
+    );
+    const startIdx = lastSetIdx === -1 ? 0 : Math.min(lastSetIdx + 1, LEVEL_ORDER.length - 1);
     setTaxonLoading(true);
-    api
-      .get<{ items: TaxonBucketDto[] }>("/plants/taxonomy/distinct", { params })
-      .then((res) => {
-        if (!cancelled) setTaxonItems(res.data.items ?? []);
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        for (let idx = startIdx; idx < LEVEL_ORDER.length; idx++) {
+          const level = LEVEL_ORDER[idx] as TaxonLevel;
+          const params: Record<string, string> = { field: level };
+          if (treeDiv) params.division = treeDiv;
+          if (treeSub) params.subclass = treeSub;
+          if (treeOrd) params.torder = treeOrd;
+          if (treeFam) params.family = treeFam;
+          const res = await api.get<{ items: TaxonBucketDto[] }>("/plants/taxonomy/distinct", {
+            params,
+          });
+          if (cancelled) return;
+          const items = res.data.items ?? [];
+          if (items.length > 0 || idx === LEVEL_ORDER.length - 1) {
+            setTaxonItems(items);
+            // Record override only when we actually skipped levels
+            setDisplayLevelOverride(idx > startIdx ? level : null);
+            return;
+          }
+          // Empty at this level → try the next one
+        }
+      } catch {
         if (!cancelled) setTaxonItems([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setTaxonLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [onPlantsPage, treeDiv, treeSub, treeOrd, treeFam]);
+  }, [onPlantsPage, treeDiv, treeSub, treeOrd, treeFam, treeGen]);
 
   // If a sub-level value appears in the URL without ancestors, auto-resolve the full path
   useEffect(() => {
@@ -409,13 +486,28 @@ function AppShell() {
                 search
               </span>
               <input
-                className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-3 font-body-md text-body-md text-on-background outline-none transition-all placeholder:text-on-surface-variant/70 focus:border-primary focus:ring-0"
+                className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-10 font-body-md text-body-md text-on-background outline-none transition-all placeholder:text-on-surface-variant/70 focus:border-primary focus:ring-0"
                 placeholder="搜索标本、科属或ID"
-                type="search"
+                type="text"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitSearch()}
               />
+              {draft && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                  onClick={() => {
+                    setDraft("");
+                    const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
+                    next.delete("q");
+                    nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
+                  }}
+                  title="清空搜索"
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              )}
             </div>
             <button
               type="button"
@@ -465,13 +557,17 @@ function AppShell() {
             >
               help
             </button>
-            <button
-              type="button"
-              className="material-symbols-outlined rounded-full p-2 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
-              aria-label="设置"
-            >
-              settings
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setUserModalOpen(true)}
+                className="material-symbols-outlined rounded-full p-2 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+                aria-label="用户管理"
+                title="用户管理"
+              >
+                manage_accounts
+              </button>
+            )}
             <div className="ml-2 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-primary-container text-xs font-semibold text-on-primary">
               {displayName.slice(0, 1).toUpperCase()}
             </div>
@@ -494,6 +590,14 @@ function AppShell() {
           <Outlet context={{ taxonLevel }} />
         </div>
       </main>
+      
+      {isAdmin && (
+        <UserManagementModal 
+          open={userModalOpen} 
+          onCancel={() => setUserModalOpen(false)} 
+          currentUserId={payload.sub ? Number(payload.sub) : undefined}
+        />
+      )}
     </div>
   );
 }

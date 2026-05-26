@@ -48,26 +48,8 @@ def _mysql_connect_kwargs(database_url: str) -> dict[str, Any]:
 
 def connect_mysql() -> pymysql.connections.Connection:
     settings = get_settings()
-    if settings.database_url and settings.database_url.strip():
-        kw = _mysql_connect_kwargs(settings.database_url)
-    else:
-        kw = {
-            "host": settings.db_host,
-            "port": settings.db_port,
-            "user": settings.db_user,
-            "password": settings.db_password,
-            "database": settings.db_name,
-            "charset": settings.db_charset,
-        }
-    cursorclass = kw.pop("cursorclass", DictCursor)
-    if "autocommit" not in kw:
-        kw["autocommit"] = False
-    if "connect_timeout" not in kw:
-        kw["connect_timeout"] = 10
-    if "read_timeout" not in kw:
-        kw["read_timeout"] = 30
-    if "write_timeout" not in kw:
-        kw["write_timeout"] = 30
+    kw = _mysql_connect_kwargs(settings.database_url)
+    cursorclass = kw.pop("cursorclass")
     kw["password"] = _pymysql_password_param(kw["password"] or "")
     return pymysql.connect(**kw, cursorclass=cursorclass)
 
@@ -78,4 +60,3 @@ def get_db() -> Generator[pymysql.connections.Connection, None, None]:
         yield conn
     finally:
         conn.close()
-
