@@ -1161,7 +1161,7 @@ export default function PlantsPage() {
                               ) : null}
                             </button>
                             <span className="min-w-0 flex-1 break-all font-mono-data text-[11px] text-on-surface-variant">
-                              {raw}
+                              图片 {i + 1}
                             </span>
                           </li>
                         );
