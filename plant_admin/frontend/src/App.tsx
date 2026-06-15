@@ -548,13 +548,10 @@ function AppShell() {
             </div>
 
             {/* AI 语义搜索 */}
-            <div className="flex w-[300px] items-center gap-1.5">
+            <div className="flex w-[370px] items-center gap-1.5">
               <div className="relative min-w-0 flex-1">
-                <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-primary/80">
-                  psychology
-                </span>
                 <input
-                  className="w-full rounded-lg border border-primary/30 bg-primary/5 py-1.5 pl-8.5 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-primary/50 focus:border-primary focus:ring-0"
+                  className="w-full rounded-lg border border-primary/30 bg-primary/5 py-1.5 pl-3 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-primary/50 focus:border-primary focus:ring-0"
                   placeholder="AI 语义搜索（如：关于夏天的植物）"
                   type="text"
                   value={semanticDraft}
