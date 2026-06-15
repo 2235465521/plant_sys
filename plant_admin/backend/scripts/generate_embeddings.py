@@ -1,7 +1,5 @@
 import os
-# 设置 HuggingFace 国内镜像，避免内网或国内服务器无法连接外网官网
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-
 import sys
 import pickle
 
