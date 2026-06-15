@@ -150,7 +150,9 @@ function AppShell() {
   }, [treeDiv, treeSub, treeOrd, treeFam, treeGen]);
 
   const q = onPlantsPage ? sp.get("q") ?? "" : "";
-  const [draft, setDraft] = useState(q);
+  const qMode = onPlantsPage ? sp.get("q_mode") ?? "" : "";
+  const [draft, setDraft] = useState(qMode === "semantic" ? "" : q);
+  const [semanticDraft, setSemanticDraft] = useState(qMode === "semantic" ? q : "");
   const [taxonItems, setTaxonItems] = useState<TaxonBucketDto[]>([]);
   const [taxonLoading, setTaxonLoading] = useState(false);
   const [taxonSidebarSearch, setTaxonSidebarSearch] = useState("");
@@ -165,8 +167,14 @@ function AppShell() {
   }, [activeDisplayLevel]);
 
   useEffect(() => {
-    setDraft(q);
-  }, [q]);
+    if (qMode === "semantic") {
+      setSemanticDraft(q);
+      setDraft("");
+    } else {
+      setDraft(q);
+      setSemanticDraft("");
+    }
+  }, [q, qMode]);
 
   useEffect(() => {
     const onFlash = () => setSidebarFlash(true);
@@ -288,8 +296,26 @@ function AppShell() {
 
   function submitSearch() {
     const next = new URLSearchParams(onPlantsPage ? loc.search : "");
-    if (draft.trim()) next.set("q", draft.trim());
-    else next.delete("q");
+    if (draft.trim()) {
+      next.set("q", draft.trim());
+      next.delete("q_mode");
+    } else {
+      next.delete("q");
+      next.delete("q_mode");
+    }
+    const s = next.toString();
+    nav({ pathname: "/plants", search: s ? `?${s}` : "" });
+  }
+
+  function submitSemanticSearch() {
+    const next = new URLSearchParams(onPlantsPage ? loc.search : "");
+    if (semanticDraft.trim()) {
+      next.set("q", semanticDraft.trim());
+      next.set("q_mode", "semantic");
+    } else {
+      next.delete("q");
+      next.delete("q_mode");
+    }
     const s = next.toString();
     nav({ pathname: "/plants", search: s ? `?${s}` : "" });
   }
@@ -480,42 +506,87 @@ function AppShell() {
       <header className="fixed left-0 top-0 z-30 ml-0 flex h-16 w-full items-center justify-between border-b border-outline-variant bg-surface-container-lowest pl-sidebar pr-margin">
         <div className="flex items-center gap-8 pl-gutter">
           <h1 className="font-h3 text-h3 font-semibold text-primary whitespace-nowrap">中国植物库</h1>
-          <div className="flex max-w-[40vw] w-[380px] items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[20px] text-on-surface-variant">
-                search
-              </span>
-              <input
-                className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-2 pl-10 pr-10 font-body-md text-body-md text-on-background outline-none transition-all placeholder:text-on-surface-variant/70 focus:border-primary focus:ring-0"
-                placeholder="搜索标本、科属或ID"
-                type="text"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-              />
-              {draft && (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
-                  onClick={() => {
-                    setDraft("");
-                    const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
-                    next.delete("q");
-                    nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
-                  }}
-                  title="清空搜索"
-                >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
-                </button>
-              )}
+          <div className="flex items-center gap-3">
+            {/* 普通文本搜索 */}
+            <div className="flex w-[210px] items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <span className="material-symbols-outlined pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                  search
+                </span>
+                <input
+                  className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-1.5 pl-8 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-on-surface-variant/70 focus:border-primary focus:ring-0"
+                  placeholder="搜索名称、科属或ID"
+                  type="text"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitSearch()}
+                />
+                {draft && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                    onClick={() => {
+                      setDraft("");
+                      const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
+                      next.delete("q");
+                      next.delete("q_mode");
+                      nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
+                    }}
+                    title="清空搜索"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">close</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={submitSearch}
+                className="flex-shrink-0 rounded-lg border border-primary bg-primary px-2.5 py-1.5 font-label-sm text-[12px] text-on-primary transition-colors hover:bg-primary-container"
+              >
+                搜索
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={submitSearch}
-              className="flex-shrink-0 rounded-lg border border-primary bg-primary px-3 py-2 font-label-sm text-label-sm text-on-primary transition-colors hover:bg-primary-container"
-            >
-              搜索
-            </button>
+
+            {/* AI 语义搜索 */}
+            <div className="flex w-[300px] items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[18px] text-primary/80">
+                  psychology
+                </span>
+                <input
+                  className="w-full rounded-lg border border-primary/30 bg-primary/5 py-1.5 pl-8.5 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-primary/50 focus:border-primary focus:ring-0"
+                  placeholder="AI 语义搜索（如：关于夏天的植物）"
+                  type="text"
+                  value={semanticDraft}
+                  onChange={(e) => setSemanticDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submitSemanticSearch()}
+                />
+                {semanticDraft && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                    onClick={() => {
+                      setSemanticDraft("");
+                      const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
+                      next.delete("q");
+                      next.delete("q_mode");
+                      nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
+                    }}
+                    title="清空语义搜索"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">close</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={submitSemanticSearch}
+                className="flex-shrink-0 rounded-lg border border-primary bg-primary px-2.5 py-1.5 font-label-sm text-[12px] text-on-primary transition-colors hover:bg-primary-container flex items-center gap-0.5"
+              >
+                <span className="material-symbols-outlined text-[14px]">bolt</span>
+                AI搜索
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-6">

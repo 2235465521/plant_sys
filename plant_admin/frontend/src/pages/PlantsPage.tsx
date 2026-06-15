@@ -147,6 +147,7 @@ export default function PlantsPage() {
   const { taxonLevel } = useOutletContext<OutletCtx>();
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get("q") ?? "";
+  const qMode = searchParams.get("q_mode") ?? "";
   const spStr = searchParams.toString();
   const divisions = useMemo(() => {
     const u = new URLSearchParams(spStr);
@@ -173,13 +174,14 @@ export default function PlantsPage() {
     () =>
       [
         q,
+        qMode,
         [...divisions].sort().join("\x01"),
         [...subclasses].sort().join("\x01"),
         [...torders].sort().join("\x01"),
         [...families].sort().join("\x01"),
         [...genera].sort().join("\x01"),
       ].join("\0"),
-    [q, divisions, subclasses, torders, families, genera],
+    [q, qMode, divisions, subclasses, torders, families, genera],
   );
 
   const filterCrumbsWithLevel = useMemo(() => {
@@ -244,8 +246,9 @@ export default function PlantsPage() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    const url = qMode === "semantic" ? "/plants/semantic-search" : "/plants";
     api
-      .get<ListRes>("/plants", {
+      .get<ListRes>(url, {
         params: {
           page,
           page_size: pageSize,
@@ -284,7 +287,7 @@ export default function PlantsPage() {
     return () => {
       alive = false;
     };
-  }, [page, pageSize, q, divisions, subclasses, torders, families, genera, reloadTick]);
+  }, [page, pageSize, q, qMode, divisions, subclasses, torders, families, genera, reloadTick]);
 
   useEffect(() => {
     if (searchParams.get("add") === "1" && isAdmin) {
@@ -767,7 +770,7 @@ export default function PlantsPage() {
                 </h2>
                 <span className="font-label-sm text-label-sm text-on-surface-variant">
                   共 {total} 个物种
-                  {q ? ` · 搜索「${q}」` : ""}
+                  {q ? (qMode === "semantic" ? ` · AI 语义搜索「${q}」` : ` · 搜索「${q}」`) : ""}
                   {loading ? " · 加载中…" : ""}
                 </span>
               </div>

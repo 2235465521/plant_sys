@@ -30,6 +30,7 @@ from app.schemas import (
     TaxonBucket,
     TaxonomyDistinctOut,
 )
+from app.semantic_search import query_semantic_similarity
 
 router = APIRouter(prefix="/plants", tags=["plants"])
 
@@ -454,6 +455,75 @@ def list_plants(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/semantic-search", response_model=PlantListOut)
+def semantic_search_plants(
+    conn: pymysql.connections.Connection = Depends(get_db),
+    _: PlantAdminUser = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    q: str = Query(..., min_length=1, description="语义搜索的查询词"),
+    division: list[str] = Query(default=[], description="门，可多选"),
+    subclass: list[str] = Query(default=[], description="亚纲，可多选"),
+    taxonomic_order: list[str] = Query(default=[], alias="torder", description="目，可多选"),
+    family: list[str] = Query(default=[], description="科，可多选"),
+    genus: list[str] = Query(default=[], description="属，可多选"),
+):
+    divs = _norm_str_list(division)
+    subs = _norm_str_list(subclass)
+    ords = _norm_str_list(taxonomic_order)
+    fams = _norm_str_list(family)
+    gens = _norm_str_list(genus)
+    
+    has_filter = bool(divs or subs or ords or fams or gens)
+    
+    allowed_ids = None
+    if has_filter:
+        where_sql, params = _build_where(None, divs, subs, ords, fams, gens)
+        ids_sql = f"SELECT id FROM plant_classification_import WHERE {where_sql}"
+        with conn.cursor() as cur:
+            cur.execute(ids_sql, params)
+            rows = cur.fetchall() or []
+        allowed_ids = [int(r["id"]) for r in rows]
+        if not allowed_ids:
+            return PlantListOut(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size
+            )
+            
+    similarities = query_semantic_similarity(q, allowed_ids=allowed_ids)
+    total = len(similarities)
+    
+    offset = (page - 1) * page_size
+    sliced_similarities = similarities[offset : offset + page_size]
+    if not sliced_similarities:
+        return PlantListOut(
+            items=[],
+            total=total,
+            page=page,
+            page_size=page_size
+        )
+        
+    sliced_ids = [item[0] for item in sliced_similarities]
+    ph = ",".join(["%s"] * len(sliced_ids))
+    list_sql = f"""
+        SELECT * FROM plant_classification_import
+        WHERE id IN ({ph})
+        ORDER BY FIELD(id, {ph})
+    """
+    with conn.cursor() as cur:
+        cur.execute(list_sql, sliced_ids)
+        rows = cur.fetchall() or []
+        
+    return PlantListOut(
+        items=[plant_row_to_out(r) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size
     )
 
 
