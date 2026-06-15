@@ -304,9 +304,9 @@ def _build_where(
     if q:
         kw = f"%{q.strip()}%"
         conds.append(
-            "(vernacular_name LIKE %s OR scientific_name LIKE %s OR genus LIKE %s)"
+            "(vernacular_name LIKE %s OR scientific_name LIKE %s)"
         )
-        params.extend([kw, kw, kw])
+        params.extend([kw, kw])
     if division:
         sql, pr = _in_clause("division", division)
         if sql:

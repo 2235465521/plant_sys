@@ -100,7 +100,7 @@ function AppShell() {
   const loc = useLocation();
   const nav = useNavigate();
   const [sp] = useSearchParams();
-  const onPlantsPage = loc.pathname === "/plants";
+  const onPlantsPage = loc.pathname === "/plants" || loc.pathname === "/plants/";
   const [sidebarFlash, setSidebarFlash] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
 
@@ -287,7 +287,7 @@ function AppShell() {
   const isAdmin = payload.role === "admin";
 
   function submitSearch() {
-    const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
+    const next = new URLSearchParams(onPlantsPage ? loc.search : "");
     if (draft.trim()) next.set("q", draft.trim());
     else next.delete("q");
     const s = next.toString();
@@ -523,7 +523,7 @@ function AppShell() {
             <Link
               to="/plants"
               className={`border-b-2 py-5 font-label-sm text-label-sm ${
-                loc.pathname === "/plants"
+                onPlantsPage
                   ? "border-primary font-semibold text-primary"
                   : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
               }`}

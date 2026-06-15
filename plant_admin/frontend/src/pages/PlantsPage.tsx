@@ -1040,16 +1040,24 @@ export default function PlantsPage() {
                   {detailTab === "basic" ? (
                     <div className="flex flex-col gap-3 text-on-surface">
                       <p>
+                        <span className="font-semibold text-on-surface-variant">拉丁学名：</span>
+                        <span className="font-serif italic text-on-surface">{selected.scientific_name?.trim() || "无"}</span>
+                      </p>
+                      <p>
+                        <span className="font-semibold text-on-surface-variant">学名异名：</span>
+                        <span className="text-on-surface">{selected.synonyms?.trim() || "无"}</span>
+                      </p>
+                      <p>
                         <span className="font-semibold text-on-surface-variant">中文别名：</span>
-                        {selected.alternative_names_zh?.trim() || "无"}
+                        <span className="text-on-surface">{selected.alternative_names_zh?.trim() || "无"}</span>
                       </p>
                       <p>
                         <span className="font-semibold text-on-surface-variant">国内分布：</span>
-                        {selected.distribution_china?.trim() || "无"}
+                        <span className="text-on-surface">{selected.distribution_china?.trim() || "无"}</span>
                       </p>
                       <p>
                         <span className="font-semibold text-on-surface-variant">国外分布：</span>
-                        {selected.distribution_abroad?.trim() || "无"}
+                        <span className="text-on-surface">{selected.distribution_abroad?.trim() || "无"}</span>
                       </p>
                     </div>
                   ) : detailTab === "morph" ? (
@@ -1379,16 +1387,6 @@ export default function PlantsPage() {
         onCancel={() => setPreviewModalVisible(false)}
         width={720}
         footer={[
-          <Button
-            key="copy"
-            onClick={() => {
-              navigator.clipboard.writeText(previewContent)
-                .then(() => message.success("已成功复制到剪贴板"))
-                .catch(() => message.error("复制失败，请手动选择复制"));
-            }}
-          >
-            复制文本
-          </Button>,
           <Button key="close" type="primary" onClick={() => setPreviewModalVisible(false)}>
             关闭
           </Button>
