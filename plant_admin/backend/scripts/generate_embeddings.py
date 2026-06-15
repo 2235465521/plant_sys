@@ -15,7 +15,8 @@ def main():
         with conn.cursor() as cur:
             print("正在获取植物信息数据...")
             cur.execute(
-                "SELECT id, vernacular_name, scientific_name, family, genus, morphology_text, habitat "
+                "SELECT id, vernacular_name, alternative_names_zh, scientific_name, synonyms, "
+                "family, genus, morphology_text, medicinal_shape, habitat, distribution_china, distribution_abroad "
                 "FROM plant_classification_import ORDER BY id ASC"
             )
             rows = cur.fetchall()
@@ -52,12 +53,17 @@ def main():
     for r in rows:
         ids.append(int(r["id"]))
         parts = [
-            r["vernacular_name"] or "",
-            r["scientific_name"] or "",
-            r["family"] or "",
-            r["genus"] or "",
-            r["morphology_text"] or "",
-            r["habitat"] or "",
+            f"中文名：{r['vernacular_name']}" if r["vernacular_name"] else "",
+            f"别名：{r['alternative_names_zh']}" if r["alternative_names_zh"] else "",
+            f"学名：{r['scientific_name']}" if r["scientific_name"] else "",
+            f"异名：{r['synonyms']}" if r["synonyms"] else "",
+            f"科：{r['family']}" if r["family"] else "",
+            f"属：{r['genus']}" if r["genus"] else "",
+            f"形态描述：{r['morphology_text']}" if r["morphology_text"] else "",
+            f"药材性状：{r['medicinal_shape']}" if r["medicinal_shape"] else "",
+            f"生境：{r['habitat']}" if r["habitat"] else "",
+            f"国内分布：{r['distribution_china']}" if r["distribution_china"] else "",
+            f"国外分布：{r['distribution_abroad']}" if r["distribution_abroad"] else "",
         ]
         text = " ".join(p.strip() for p in parts if p.strip())
         texts.append(text)
