@@ -37,6 +37,9 @@ def load_resources():
         try:
             from sentence_transformers import SentenceTransformer
             model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "models", "paraphrase-multilingual-MiniLM-L12-v2")
+            if os.path.exists(local_path):
+                model_name = local_path
             _MODEL = SentenceTransformer(model_name)
         except Exception as e:
             raise HTTPException(

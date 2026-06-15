@@ -37,8 +37,13 @@ def main():
         return
 
     model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    print(f"正在加载轻量级多语言嵌入模型 '{model_name}'...")
-    print("（首次运行会自动从 HuggingFace 缓存下载该模型，约为 110MB，请保持网络畅通）")
+    local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "models", "paraphrase-multilingual-MiniLM-L12-v2")
+    if os.path.exists(local_path):
+        model_name = local_path
+        print(f"检测到本地已存在模型，正在从本地路径 '{model_name}' 加载...")
+    else:
+        print(f"正在从 HuggingFace 镜像站加载模型 '{model_name}'...")
+        print("（首次运行会自动从镜像站缓存下载该模型，约为 110MB，请保持网络畅通）")
     model = SentenceTransformer(model_name)
 
     print("正在组装检索描述文本...")
