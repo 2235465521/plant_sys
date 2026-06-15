@@ -4,6 +4,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   ExportOutlined,
+  EyeOutlined,
   FileExcelOutlined,
   FileTextOutlined,
   TableOutlined,
@@ -202,10 +203,13 @@ export default function PlantsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(36);
   const [selected, setSelected] = useState<Plant | null>(null);
-  const [detailTab, setDetailTab] = useState<"morph" | "medicinal">("morph");
+  const [detailTab, setDetailTab] = useState<"basic" | "morph" | "medicinal">("basic");
   const [imageTab, setImageTab] = useState<"web" | "upload">("web");
   const [showTable, setShowTable] = useState(false);
   const [tableSelectedKeys, setTableSelectedKeys] = useState<Key[]>([]);
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [previewContent, setPreviewContent] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [cardMultiSelect, setCardMultiSelect] = useState(false);
   const lastCardClickIdx = useRef<number>(-1);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -402,7 +406,7 @@ export default function PlantsPage() {
 
   async function exportTableSelection(fileFormat: "txt" | "xlsx") {
     let ids: number[];
-    if (cardMultiSelect) {
+    if (cardMultiSelect || showTable) {
       ids = tableSelectedKeys.map((k) => Number(k)).filter((n) => Number.isInteger(n) && n > 0);
       if (ids.length === 0) {
         message.warning("请先勾选要导出的标本");
@@ -438,6 +442,40 @@ export default function PlantsPage() {
       message.success(`已导出 ${ids.length} 条（${label}），并已记入导出记录`);
     } catch (e: unknown) {
       message.error(String(e));
+    }
+  }
+
+  async function handlePreviewExportText() {
+    let ids: number[];
+    if (cardMultiSelect || showTable) {
+      ids = tableSelectedKeys.map((k) => Number(k)).filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length === 0) {
+        message.warning("请先勾选要预览的标本");
+        return;
+      }
+    } else {
+      if (!selected) {
+        message.warning("请先在物种列表中选一个标本");
+        return;
+      }
+      ids = [selected.id];
+    }
+
+    setPreviewLoading(true);
+    try {
+      const res = await api.post(
+        "/plants/export-batch",
+        { ids, file_format: "txt" },
+        { responseType: "blob" },
+      );
+      // Read Blob as text
+      const text = await res.data.text();
+      setPreviewContent(text);
+      setPreviewModalVisible(true);
+    } catch (e: unknown) {
+      message.error("获取预览文本失败：" + String(e));
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -766,6 +804,27 @@ export default function PlantsPage() {
                     cardMultiSelect
                       ? tableSelectedKeys.length === 0
                         ? "请先勾选标本"
+                        : `预览已勾选的 ${tableSelectedKeys.length} 个标本的导出文本`
+                      : selected
+                        ? `预览当前标本「${pickSpeciesLabel(selected)}」的导出文本`
+                        : "请先在物种列表中选一个标本"
+                  }
+                >
+                  <Button
+                    icon={<EyeOutlined />}
+                    loading={previewLoading}
+                    disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
+                    onClick={handlePreviewExportText}
+                    className="font-label-sm"
+                  >
+                    预览
+                  </Button>
+                </Tooltip>
+                <Tooltip
+                  title={
+                    cardMultiSelect
+                      ? tableSelectedKeys.length === 0
+                        ? "请先勾选标本"
                         : `导出已勾选的 ${tableSelectedKeys.length} 个标本`
                       : selected
                         ? `导出当前标本「${pickSpeciesLabel(selected)}」`
@@ -858,11 +917,21 @@ export default function PlantsPage() {
                   <strong className="text-on-surface"> Excel（.xlsx） </strong>。
                 </p>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <Dropdown menu={batchExportMenuProps} disabled={tableSelectedKeys.length === 0 || loading}>
-                    <Button type="primary" icon={<ExportOutlined />} disabled={tableSelectedKeys.length === 0 || loading}>
-                      导出 <DownOutlined />
+                  <div className="flex items-center gap-2">
+                    <Dropdown menu={batchExportMenuProps} disabled={tableSelectedKeys.length === 0 || loading}>
+                      <Button type="primary" icon={<ExportOutlined />} disabled={tableSelectedKeys.length === 0 || loading}>
+                        导出 <DownOutlined />
+                      </Button>
+                    </Dropdown>
+                    <Button
+                      icon={<EyeOutlined />}
+                      loading={previewLoading}
+                      disabled={tableSelectedKeys.length === 0 || loading}
+                      onClick={handlePreviewExportText}
+                    >
+                      预览
                     </Button>
-                  </Dropdown>
+                  </div>
                   <span className="font-label-sm text-on-surface-variant">
                     已选 <span className="font-semibold text-on-surface">{tableSelectedKeys.length}</span> 条 · 本页共{" "}
                     {data.length} 条（表头可多选 / 全选本页 / 反选）
@@ -933,6 +1002,17 @@ export default function PlantsPage() {
             <div className="flex border-b border-outline-variant px-6">
               <button
                 type="button"
+                onClick={() => setDetailTab("basic")}
+                className={`mr-8 py-4 font-label-sm text-label-sm ${
+                  detailTab === "basic"
+                    ? "border-b-2 border-primary font-semibold text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`}
+              >
+                基础信息
+              </button>
+              <button
+                type="button"
                 onClick={() => setDetailTab("morph")}
                 className={`mr-8 py-4 font-label-sm text-label-sm ${
                   detailTab === "morph"
@@ -957,7 +1037,22 @@ export default function PlantsPage() {
             <div className="p-6">
               {selected ? (
                 <div className="max-w-none font-body-md leading-relaxed text-on-surface-variant">
-                  {detailTab === "morph" ? (
+                  {detailTab === "basic" ? (
+                    <div className="flex flex-col gap-3 text-on-surface">
+                      <p>
+                        <span className="font-semibold text-on-surface-variant">中文别名：</span>
+                        {selected.alternative_names_zh?.trim() || "无"}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-on-surface-variant">国内分布：</span>
+                        {selected.distribution_china?.trim() || "无"}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-on-surface-variant">国外分布：</span>
+                        {selected.distribution_abroad?.trim() || "无"}
+                      </p>
+                    </div>
+                  ) : detailTab === "morph" ? (
                     <div className="whitespace-pre-wrap text-on-surface">
                       {selected.morphology_text?.trim() || "暂无描述"}
                     </div>
@@ -1276,6 +1371,32 @@ export default function PlantsPage() {
             <Input />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="导出文本预览"
+        open={previewModalVisible}
+        onCancel={() => setPreviewModalVisible(false)}
+        width={720}
+        footer={[
+          <Button
+            key="copy"
+            onClick={() => {
+              navigator.clipboard.writeText(previewContent)
+                .then(() => message.success("已成功复制到剪贴板"))
+                .catch(() => message.error("复制失败，请手动选择复制"));
+            }}
+          >
+            复制文本
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setPreviewModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+      >
+        <div className="max-h-[60vh] overflow-y-auto rounded bg-surface-container p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-on-surface">
+          {previewContent}
+        </div>
       </Modal>
     </>
   );
