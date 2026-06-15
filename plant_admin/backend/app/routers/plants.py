@@ -516,7 +516,7 @@ def semantic_search_plants(
         ORDER BY FIELD(id, {ph})
     """
     with conn.cursor() as cur:
-        cur.execute(list_sql, sliced_ids)
+        cur.execute(list_sql, [*sliced_ids, *sliced_ids])
         rows = cur.fetchall() or []
         
     return PlantListOut(
