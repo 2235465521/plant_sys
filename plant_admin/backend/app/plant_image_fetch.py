@@ -17,7 +17,23 @@ UA = (
 _IMG_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
 
+def safe_quote_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    # 先 unquote 再 quote，防止双重 url 编码
+    path = urllib.parse.quote(urllib.parse.unquote(parsed.path))
+    query = urllib.parse.quote(urllib.parse.unquote(parsed.query), safe="=&")
+    return urllib.parse.urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        path,
+        parsed.params,
+        query,
+        parsed.fragment
+    ))
+
+
 def _http_get(url: str, referer: str | None = None) -> str:
+    url = safe_quote_url(url)
     h: dict[str, str] = {"User-Agent": UA}
     if referer:
         h["Referer"] = referer
@@ -84,6 +100,7 @@ def resolve_remote_image_url(page_url: str) -> tuple[str | None, str]:
 
 
 def download_image_bytes(image_url: str) -> bytes:
+    image_url = safe_quote_url(image_url)
     headers = {
         "User-Agent": UA,
         "Referer": f"{PPBC_ORIGIN}/",
