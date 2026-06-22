@@ -55,6 +55,14 @@ export interface RegisterStatus {
   allow_admin: boolean;
 }
 
+export interface PlantAlias {
+  id?: number;
+  plant_id?: number;
+  alias_type: string;
+  alias_name: string;
+  origin_desc?: string | null;
+}
+
 export interface Plant {
   id: number;
   division: string | null;
@@ -76,6 +84,9 @@ export interface Plant {
   image_url: string | null;
   /** 本站多图 URL 路径（与库中 JSON 数组一致） */
   image_server_paths: string[] | null;
+  harvest_months?: string | null;
+  food_therapy_months?: string | null;
+  aliases?: PlantAlias[] | null;
 }
 
 export interface ExportLog {

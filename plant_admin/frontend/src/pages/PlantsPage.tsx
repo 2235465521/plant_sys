@@ -10,7 +10,7 @@ import {
   TableOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
-import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message } from "antd";
+import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select } from "antd";
 import type { MenuProps } from "antd";
 import type { Key } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -149,6 +149,8 @@ export default function PlantsPage() {
   const q = searchParams.get("q") ?? "";
   const qMode = searchParams.get("q_mode") ?? "";
   const spStr = searchParams.toString();
+  const harvestMonth = searchParams.get("harvest_month") ?? "";
+  const foodTherapyMonth = searchParams.get("food_therapy_month") ?? "";
   const divisions = useMemo(() => {
     const u = new URLSearchParams(spStr);
     return u.getAll("division").map((s) => s.trim()).filter(Boolean);
@@ -175,13 +177,15 @@ export default function PlantsPage() {
       [
         q,
         qMode,
+        harvestMonth,
+        foodTherapyMonth,
         [...divisions].sort().join("\x01"),
         [...subclasses].sort().join("\x01"),
         [...torders].sort().join("\x01"),
         [...families].sort().join("\x01"),
         [...genera].sort().join("\x01"),
       ].join("\0"),
-    [q, qMode, divisions, subclasses, torders, families, genera],
+    [q, qMode, harvestMonth, foodTherapyMonth, divisions, subclasses, torders, families, genera],
   );
 
   const filterCrumbsWithLevel = useMemo(() => {
@@ -253,6 +257,8 @@ export default function PlantsPage() {
           page,
           page_size: pageSize,
           q: q || undefined,
+          harvest_month: harvestMonth || undefined,
+          food_therapy_month: foodTherapyMonth || undefined,
           division: divisions,
           subclass: subclasses,
           torder: torders,
@@ -287,7 +293,7 @@ export default function PlantsPage() {
     return () => {
       alive = false;
     };
-  }, [page, pageSize, q, qMode, divisions, subclasses, torders, families, genera, reloadTick]);
+  }, [page, pageSize, q, qMode, harvestMonth, foodTherapyMonth, divisions, subclasses, torders, families, genera, reloadTick]);
 
   useEffect(() => {
     if (searchParams.get("add") === "1" && isAdmin) {
@@ -864,6 +870,79 @@ export default function PlantsPage() {
                 </Tooltip>
               </div>
             </div>
+
+            {/* 功能一：时令药材筛选区 */}
+            <div className="mb-4 flex flex-col gap-3 rounded bg-surface-container-low p-4 text-sm border border-outline-variant">
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-on-surface w-24 flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">calendar_month</span>最佳采收月</span>
+                <div className="flex flex-wrap gap-2">
+                  {[...Array(12)].map((_, i) => {
+                    const m = String(i + 1);
+                    const active = harvestMonth === m;
+                    return (
+                      <button
+                        key={`h-${m}`}
+                        onClick={() => {
+                          const u = new URLSearchParams(searchParams.toString());
+                          if (active) u.delete("harvest_month");
+                          else u.set("harvest_month", m);
+                          setSearchParams(u);
+                        }}
+                        className={`px-3 py-1 rounded-full transition-all duration-200 border ${
+                          active 
+                            ? "bg-primary border-primary text-on-primary shadow-sm transform scale-105" 
+                            : "bg-surface border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary"
+                        }`}
+                      >
+                        {m}月
+                      </button>
+                    );
+                  })}
+                  {harvestMonth && (
+                    <button onClick={() => {
+                      const u = new URLSearchParams(searchParams.toString());
+                      u.delete("harvest_month");
+                      setSearchParams(u);
+                    }} className="px-2 text-xs text-outline hover:text-error transition-colors">清除</button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-on-surface w-24 flex items-center gap-1"><span className="material-symbols-outlined text-[18px]">restaurant_menu</span>食疗入药月</span>
+                <div className="flex flex-wrap gap-2">
+                  {[...Array(12)].map((_, i) => {
+                    const m = String(i + 1);
+                    const active = foodTherapyMonth === m;
+                    return (
+                      <button
+                        key={`f-${m}`}
+                        onClick={() => {
+                          const u = new URLSearchParams(searchParams.toString());
+                          if (active) u.delete("food_therapy_month");
+                          else u.set("food_therapy_month", m);
+                          setSearchParams(u);
+                        }}
+                        className={`px-3 py-1 rounded-full transition-all duration-200 border ${
+                          active 
+                            ? "bg-tertiary border-tertiary text-on-tertiary shadow-sm transform scale-105" 
+                            : "bg-surface border-outline-variant hover:border-tertiary text-on-surface-variant hover:text-tertiary"
+                        }`}
+                      >
+                        {m}月
+                      </button>
+                    );
+                  })}
+                  {foodTherapyMonth && (
+                    <button onClick={() => {
+                      const u = new URLSearchParams(searchParams.toString());
+                      u.delete("food_therapy_month");
+                      setSearchParams(u);
+                    }} className="px-2 text-xs text-outline hover:text-error transition-colors">清除</button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {!showTable && (
               <div className="grid grid-cols-3 gap-gutter sm:grid-cols-6">
                 {data.map((p, idx) => {
@@ -1054,6 +1133,24 @@ export default function PlantsPage() {
                         <span className="font-semibold text-on-surface-variant">中文别名：</span>
                         <span className="text-on-surface">{selected.alternative_names_zh?.trim() || "无"}</span>
                       </p>
+                      <div>
+                        <span className="font-semibold text-on-surface-variant">分类别名系统：</span>
+                        {selected.aliases && selected.aliases.length > 0 ? (
+                          <div className="mt-2 flex flex-col gap-2">
+                            {selected.aliases.map((a, i) => (
+                              <div key={i} className="flex flex-col rounded bg-surface-container-high p-3 text-sm border border-outline-variant">
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary border border-primary/20">{a.alias_type}</span>
+                                  <span className="font-bold text-on-surface">{a.alias_name}</span>
+                                </div>
+                                {a.origin_desc && <span className="text-on-surface-variant mt-1.5 text-xs leading-relaxed">{a.origin_desc}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-on-surface ml-2">无</span>
+                        )}
+                      </div>
                       <p>
                         <span className="font-semibold text-on-surface-variant">国内分布：</span>
                         <span className="text-on-surface">{selected.distribution_china?.trim() || "无"}</span>
@@ -1381,6 +1478,65 @@ export default function PlantsPage() {
           <Form.Item name="image_url" label="网络图片链接">
             <Input />
           </Form.Item>
+
+          <div className="mb-2 mt-4 font-semibold text-on-surface">分类别名配置</div>
+          <Form.List name="aliases">
+            {(fields, { add, remove }) => (
+              <div className="flex flex-col gap-3">
+                {fields.map(({ key, name, ...restField }) => (
+                  <div key={key} className="flex gap-2 items-start bg-surface-container-low p-3 rounded border border-outline-variant relative group transition-colors hover:border-primary/50">
+                    <div className="flex-1 flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'alias_type']}
+                          className="mb-0 w-40"
+                          rules={[{ required: true, message: '请选择类型' }]}
+                        >
+                          <Select placeholder="选择类型" options={[
+                            {label:'药典标准名', value:'药典标准名'},
+                            {label:'古书古名', value:'古书古名'},
+                            {label:'民间通用俗称', value:'民间通用俗称'},
+                            {label:'各地方言名', value:'各地方言名'},
+                            {label:'药房处方名', value:'药房处方名'},
+                            {label:'市场商品名', value:'市场商品名'},
+                            {label:'易混淆错用名', value:'易混淆错用名'},
+                          ]} />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'alias_name']}
+                          className="mb-0 flex-1"
+                          rules={[{ required: true, message: '请填写别名' }]}
+                        >
+                          <Input placeholder="输入别名内容" />
+                        </Form.Item>
+                      </div>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'origin_desc']}
+                        className="mb-0"
+                      >
+                        <Input placeholder="简单由来说明（选填）" />
+                      </Form.Item>
+                    </div>
+                    <Button 
+                      type="text" 
+                      danger 
+                      className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1"
+                      icon={<span className="material-symbols-outlined text-[18px]">close</span>} 
+                      onClick={() => remove(name)} 
+                    />
+                  </div>
+                ))}
+                <Form.Item className="mb-0">
+                  <Button type="dashed" onClick={() => add()} block icon={<span className="material-symbols-outlined text-[18px] align-middle">add</span>}>
+                    添加分类别名
+                  </Button>
+                </Form.Item>
+              </div>
+            )}
+          </Form.List>
         </Form>
       </Modal>
 

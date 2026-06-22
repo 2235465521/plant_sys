@@ -75,6 +75,8 @@ class PlantBase(BaseModel):
     is_medicinal_food_homologous: Optional[str] = None
     image_url: Optional[str] = None
     image_server_paths: Optional[list[str]] = None
+    harvest_months: Optional[str] = None
+    food_therapy_months: Optional[str] = None
 
     @field_validator("image_server_paths", mode="before")
     @classmethod
@@ -103,16 +105,28 @@ class PlantBase(BaseModel):
         return None
 
 
-class PlantCreate(PlantBase):
+class PlantAliasBase(BaseModel):
+    alias_type: str
+    alias_name: str
+    origin_desc: Optional[str] = None
+
+class PlantAliasCreate(PlantAliasBase):
     pass
 
+class PlantAliasOut(PlantAliasBase):
+    id: int
+    plant_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class PlantCreate(PlantBase):
+    aliases: Optional[list[PlantAliasCreate]] = None
 
 class PlantUpdate(PlantBase):
-    pass
-
+    aliases: Optional[list[PlantAliasCreate]] = None
 
 class PlantOut(PlantBase):
     id: int
+    aliases: Optional[list[PlantAliasOut]] = None
     model_config = ConfigDict(from_attributes=True)
 
 

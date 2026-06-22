@@ -99,8 +99,11 @@ def _row_as_plant_out_dict(row: dict) -> dict:
     return d
 
 
-def plant_row_to_out(row: dict) -> PlantOut:
-    return PlantOut.model_validate(_row_as_plant_out_dict(row))
+def plant_row_to_out(row: dict, aliases: list[dict] = None) -> PlantOut:
+    d = _row_as_plant_out_dict(row)
+    if aliases is not None:
+        d["aliases"] = aliases
+    return PlantOut.model_validate(d)
 
 
 def _sql_column_value(column: str, value: Any) -> Any:
@@ -128,6 +131,8 @@ _PLANT_COLS = (
     "is_medicinal_food_homologous",
     "image_url",
     "image_server_paths",
+    "harvest_months",
+    "food_therapy_months",
 )
 
 
@@ -164,6 +169,8 @@ def plant_to_dict(p: dict) -> dict:
         "is_medicinal_food_homologous": p.get("is_medicinal_food_homologous"),
         "image_url": p.get("image_url"),
         "image_server_paths": _deserialize_paths_from_db(p.get("image_server_paths")),
+        "harvest_months": p.get("harvest_months"),
+        "food_therapy_months": p.get("food_therapy_months"),
     }
 
 
@@ -299,6 +306,8 @@ def _build_where(
     taxonomic_order: list[str],
     family: list[str],
     genus: list[str],
+    harvest_month: Optional[int] = None,
+    food_therapy_month: Optional[int] = None,
 ) -> tuple[str, list]:
     conds: list[str] = []
     params: list = []
@@ -333,6 +342,12 @@ def _build_where(
         if sql:
             conds.append(sql)
             params.extend(pr)
+    if harvest_month is not None:
+        conds.append("FIND_IN_SET(%s, harvest_months) > 0")
+        params.append(str(harvest_month))
+    if food_therapy_month is not None:
+        conds.append("FIND_IN_SET(%s, food_therapy_months) > 0")
+        params.append(str(food_therapy_month))
     if not conds:
         return "1 = 1", []
     return " AND ".join(conds), params
@@ -429,13 +444,15 @@ def list_plants(
     taxonomic_order: list[str] = Query(default=[], alias="torder", description="目，可多选"),
     family: list[str] = Query(default=[], description="科，可多选"),
     genus: list[str] = Query(default=[], description="属，可多选"),
+    harvest_month: Optional[int] = Query(None, description="最佳采收月筛选"),
+    food_therapy_month: Optional[int] = Query(None, description="食疗入药月筛选"),
 ):
     divs = _norm_str_list(division)
     subs = _norm_str_list(subclass)
     ords = _norm_str_list(taxonomic_order)
     fams = _norm_str_list(family)
     gens = _norm_str_list(genus)
-    where_sql, params = _build_where(q, divs, subs, ords, fams, gens)
+    where_sql, params = _build_where(q, divs, subs, ords, fams, gens, harvest_month, food_therapy_month)
     count_sql = f"SELECT COUNT(*) AS c FROM plant_classification_import WHERE {where_sql}"
     list_sql = f"""
         SELECT * FROM plant_classification_import
@@ -470,6 +487,8 @@ def semantic_search_plants(
     taxonomic_order: list[str] = Query(default=[], alias="torder", description="目，可多选"),
     family: list[str] = Query(default=[], description="科，可多选"),
     genus: list[str] = Query(default=[], description="属，可多选"),
+    harvest_month: Optional[int] = Query(None, description="最佳采收月筛选"),
+    food_therapy_month: Optional[int] = Query(None, description="食疗入药月筛选"),
 ):
     divs = _norm_str_list(division)
     subs = _norm_str_list(subclass)
@@ -477,11 +496,11 @@ def semantic_search_plants(
     fams = _norm_str_list(family)
     gens = _norm_str_list(genus)
     
-    has_filter = bool(divs or subs or ords or fams or gens)
+    has_filter = bool(divs or subs or ords or fams or gens or harvest_month is not None or food_therapy_month is not None)
     
     allowed_ids = None
     if has_filter:
-        where_sql, params = _build_where(None, divs, subs, ords, fams, gens)
+        where_sql, params = _build_where(None, divs, subs, ords, fams, gens, harvest_month, food_therapy_month)
         ids_sql = f"SELECT id FROM plant_classification_import WHERE {where_sql}"
         with conn.cursor() as cur:
             cur.execute(ids_sql, params)
@@ -798,7 +817,10 @@ def get_plant(
         p = cur.fetchone()
     if not p:
         raise HTTPException(404, "记录不存在")
-    return plant_row_to_out(p)
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
+        aliases = cur.fetchall() or []
+    return plant_row_to_out(p, aliases=aliases)
 
 
 @router.post("", response_model=PlantOut)
@@ -808,6 +830,7 @@ def create_plant(
     _: PlantAdminUser = Depends(require_admin),
 ):
     data = body.model_dump()
+    aliases_data = data.pop("aliases", None)
     cols = [c for c in _PLANT_COLS if c in data]
     vals = [_sql_column_value(c, data[c]) for c in cols]
     with conn.cursor() as cur:
@@ -820,10 +843,22 @@ def create_plant(
         cur.execute(sql, insert_vals)
     conn.commit()
     _sync_plant_auto_increment(conn)
+    
+    if aliases_data:
+        with conn.cursor() as cur:
+            for alias in aliases_data:
+                cur.execute(
+                    "INSERT INTO plant_aliases (plant_id, alias_type, alias_name, origin_desc) VALUES (%s, %s, %s, %s)",
+                    (new_id, alias["alias_type"], alias["alias_name"], alias.get("origin_desc"))
+                )
+        conn.commit()
+        
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (new_id,))
         row = cur.fetchone()
-    return plant_row_to_out(row)
+        cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (new_id,))
+        aliases = cur.fetchall() or []
+    return plant_row_to_out(row, aliases=aliases)
 
 
 @router.put("/{plant_id}", response_model=PlantOut)
@@ -837,12 +872,28 @@ def update_plant(
         cur.execute("SELECT id FROM plant_classification_import WHERE id = %s", (plant_id,))
         if not cur.fetchone():
             raise HTTPException(404, "记录不存在")
+            
     patch = body.model_dump(exclude_unset=True)
+    aliases_data = patch.pop("aliases", None)
+    
+    if aliases_data is not None:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM plant_aliases WHERE plant_id = %s", (plant_id,))
+            for alias in aliases_data:
+                cur.execute(
+                    "INSERT INTO plant_aliases (plant_id, alias_type, alias_name, origin_desc) VALUES (%s, %s, %s, %s)",
+                    (plant_id, alias["alias_type"], alias["alias_name"], alias.get("origin_desc"))
+                )
+        conn.commit()
+
     if not patch:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (plant_id,))
             row = cur.fetchone()
-        return plant_row_to_out(row)
+            cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
+            aliases = cur.fetchall() or []
+        return plant_row_to_out(row, aliases=aliases)
+        
     sets = ",".join([f"{k}=%s" for k in patch])
     vals = [_sql_column_value(k, v) for k, v in patch.items()] + [plant_id]
     sql = f"UPDATE plant_classification_import SET {sets} WHERE id=%s"
@@ -852,7 +903,9 @@ def update_plant(
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (plant_id,))
         row = cur.fetchone()
-    return plant_row_to_out(row)
+        cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
+        aliases = cur.fetchall() or []
+    return plant_row_to_out(row, aliases=aliases)
 
 
 @router.delete("/{plant_id}")
