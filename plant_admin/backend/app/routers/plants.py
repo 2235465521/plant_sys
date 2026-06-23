@@ -162,6 +162,80 @@ def _sync_plant_auto_increment(conn: pymysql.connections.Connection) -> None:
     conn.commit()
 
 
+def _enrich_rows_with_nested_features(rows: list[dict], conn: pymysql.connections.Connection) -> None:
+    if not rows:
+        return
+    
+    plant_ids = [r["id"] for r in rows]
+    ph = ",".join(["%s"] * len(plant_ids))
+    
+    # 1. Aliases
+    aliases_map = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT plant_id, alias_type, alias_name, origin_desc FROM plant_aliases WHERE plant_id IN ({ph})",
+            plant_ids
+        )
+        for al in cur.fetchall() or []:
+            pid = al["plant_id"]
+            desc_part = f" (由来: {al['origin_desc']})" if al.get("origin_desc") else ""
+            val = f"[{al['alias_type']}] {al['alias_name']}{desc_part}"
+            aliases_map.setdefault(pid, []).append(val)
+            
+    # 2. Habitats
+    habitats_map = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT plant_id, habitat_type FROM plant_habitats WHERE plant_id IN ({ph})",
+            plant_ids
+        )
+        for h in cur.fetchall() or []:
+            pid = h["plant_id"]
+            habitats_map.setdefault(pid, []).append(h["habitat_type"])
+            
+    # 3. Rankings
+    rankings_map = {}
+    ranking_type_cn = {
+        "sweetest": "最甜植物",
+        "bitterest": "最苦植物",
+        "rarity": "珍稀物种",
+        "growth_cycle": "特殊生长周期"
+    }
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT plant_id, ranking_type, ranking_value, description FROM plant_rankings WHERE plant_id IN ({ph})",
+            plant_ids
+        )
+        for r in cur.fetchall() or []:
+            pid = r["plant_id"]
+            type_label = ranking_type_cn.get(r["ranking_type"], r["ranking_type"])
+            val_part = f" (指标: {r['ranking_value']})" if r.get("ranking_value") else ""
+            desc_part = f" 理由: {r['description']}" if r.get("description") else ""
+            detail = f"{type_label}{val_part}{desc_part}"
+            rankings_map.setdefault(pid, []).append(detail)
+            
+    # 4. Regions
+    regions_map = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT plant_id, region_name, combo_name FROM plant_regions WHERE plant_id IN ({ph})",
+            plant_ids
+        )
+        for reg in cur.fetchall() or []:
+            pid = reg["plant_id"]
+            combo_part = f" ({reg['combo_name']})" if reg.get("combo_name") else ""
+            val = f"{reg['region_name']}{combo_part}"
+            regions_map.setdefault(pid, []).append(val)
+            
+    # Write back to each row
+    for r in rows:
+        pid = r["id"]
+        r["aliases_str"] = "; ".join(aliases_map.get(pid, []))
+        r["habitats_str"] = ", ".join(habitats_map.get(pid, []))
+        r["rankings_str"] = "; ".join(rankings_map.get(pid, []))
+        r["regions_str"] = "; ".join(regions_map.get(pid, []))
+
+
 def plant_to_dict(p: dict) -> dict:
     return {
         "id": p["id"],
@@ -187,6 +261,10 @@ def plant_to_dict(p: dict) -> dict:
         "food_therapy_months": p.get("food_therapy_months"),
         "harvest_months_desc": p.get("harvest_months_desc"),
         "food_therapy_months_desc": p.get("food_therapy_months_desc"),
+        "aliases_str": p.get("aliases_str"),
+        "habitats_str": p.get("habitats_str"),
+        "rankings_str": p.get("rankings_str"),
+        "regions_str": p.get("regions_str"),
     }
 
 
@@ -200,6 +278,7 @@ _PLANT_EXPORT_EN_TO_CN: dict[str, str] = {
     "genus": "属",
     "vernacular_name": "中文名",
     "alternative_names_zh": "中文别名",
+    "aliases_str": "分类别称系统",
     "scientific_name": "拉丁学名",
     "taxonomic_provenance": "分类来源或文献",
     "synonyms": "学名异名",
@@ -208,9 +287,16 @@ _PLANT_EXPORT_EN_TO_CN: dict[str, str] = {
     "distribution_china": "国内分布",
     "distribution_abroad": "国外分布",
     "habitat": "生境",
+    "habitats_str": "场景生境分类",
     "is_medicinal_food_homologous": "药食同源",
     "image_url": "参考图片网址",
     "image_server_paths": "本站存储图片路径列表",
+    "harvest_months": "最佳采收月",
+    "harvest_months_desc": "最佳采收说明",
+    "food_therapy_months": "适合食疗入药月",
+    "food_therapy_months_desc": "食疗入药说明",
+    "rankings_str": "特色榜单荣誉",
+    "regions_str": "道地中药材地",
 }
 
 _PLANT_EXPORT_FIELD_ORDER_EN: tuple[str, ...] = (
@@ -222,6 +308,7 @@ _PLANT_EXPORT_FIELD_ORDER_EN: tuple[str, ...] = (
     "genus",
     "vernacular_name",
     "alternative_names_zh",
+    "aliases_str",
     "scientific_name",
     "taxonomic_provenance",
     "synonyms",
@@ -230,9 +317,16 @@ _PLANT_EXPORT_FIELD_ORDER_EN: tuple[str, ...] = (
     "distribution_china",
     "distribution_abroad",
     "habitat",
+    "habitats_str",
     "is_medicinal_food_homologous",
     "image_url",
     "image_server_paths",
+    "harvest_months",
+    "harvest_months_desc",
+    "food_therapy_months",
+    "food_therapy_months_desc",
+    "rankings_str",
+    "regions_str",
 )
 
 def plant_to_cn_export_row(p: dict) -> dict:
@@ -585,6 +679,9 @@ def export_plants_batch(
     missing = [i for i in ids if i not in found]
     if missing:
         raise HTTPException(404, f"记录不存在: {missing[:20]}{'…' if len(missing) > 20 else ''}")
+    
+    _enrich_rows_with_nested_features(rows, conn)
+    
     fmt = body.file_format
     log_fmt = "txt" if fmt == "txt" else "xlsx"
     if fmt == "txt":
@@ -627,6 +724,9 @@ def export_plant(
         p = cur.fetchone()
     if not p:
         raise HTTPException(404, "记录不存在")
+    
+    _enrich_rows_with_nested_features([p], conn)
+    
     log_fmt = "txt" if export_fmt == "txt" else "xlsx"
     if export_fmt == "txt":
         payload = plant_export_plain_text_block(p).encode("utf-8")
@@ -647,10 +747,10 @@ def export_plant(
     conn.commit()
     name = p.get("vernacular_name") or str(p["id"])
     safe = "".join(c if c not in r'\/:*?"<>|' else "_" for c in str(name))[:80]
-    filename = f"plant_{safe}_{p['id']}.json"
+    filename = f"plant_{safe}_{p['id']}.{ext}"
     return StreamingResponse(
-        BytesIO(raw.encode("utf-8")),
-        media_type="application/json; charset=utf-8",
+        BytesIO(payload),
+        media_type=media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
@@ -1001,26 +1101,53 @@ def ai_enrich_plant(
 - 中文名称: {name}
 - 拉丁名: {sci_name}
 - 形态描述: {morph}
-- 药用性状: {med}
+- 现有药用性状: {med}
 - 生境: {hab}
 
-请帮我分析该植物的：
+请帮我深入分析该植物，并生成结构化数据：
 1. 最佳采收月份：请列出最适合采收的月份数字，多个月份用逗号分隔，如 "5,6" 或仅一个数字如 "8"。如果没有明确文献，请根据其开花/结果期或通用药用部位（根、茎、叶、花、果）规律进行推断。
 2. 最佳采收详细说明：请给出一段详细的中文说明，解释为什么选择这些月份（如开花期、植株成熟度、有效成分含量等），并附带采收和炮制建议（如阴干、烘干等），字数在 100-250 字左右。
-3. 适合食疗入药月份：请列出适合作为食疗或药膳入药的月份数字，多个月份用逗号分隔，如 "6,7"。通常与最佳采收月接近或略晚，或为适宜服用调理的季节。
+3. 适合食疗入药月份：请列出适合作为食疗或药膳入药的月份数字，多个月份用逗号分隔，如 "6,7"。通常与最佳采收月接近或略晚，或为适宜物候调理的季节。
 4. 食疗入药详细说明：请给出一段详细的说明，指出食疗或入药的注意事项、鲜品/干品的使用安全风险（如有无毒性、需如何处理如干燥煎煮）、经典古籍记载（如没有特定古籍，可指出同属药材通用逻辑）及服用建议，字数在 150-300 字左右。
+5. 药用性状/药用形状说明：如果该植物现有的药用性状描述不完整或无记录，请结合其植物志与药材典籍，推断生成详细的药用形状、性味归经、功效主治说明，字数在 150-300 字左右。
+6. 生境场景分类：从 "森林", "草原", "湿地", "荒漠", "海洋" 中选择最适合它的一个或多个分类，如果有其他特殊生境（如 "高山雪线", "农田", "山坡荒地" ），也可以直接生成新分类名称并加入列表中。以字符串数组返回。
+7. 特色排行榜推荐：如果该植物具备某些极端或奇特特征（极甜、极苦、国家级珍稀濒危、或生长花期极其漫长/特殊），请为其推荐排行榜分类（ranking_type 必须是: "sweetest"、"bitterest"、"rarity"、"growth_cycle" 之一），并填写指标数值（如 "9.5分", "一级保护"）和详细理由。若均不符合，请返回空数组 []。
+8. 道地药材产区关联：若该植物属于某省份的著名道地药材或经典药材名（如 浙江的“浙八味”、河南的“四大怀药”、四川的“川药”、广东的“广药”、吉林的“关药”、云南的“云药”等），请对应生成 region_name (省份) 和 combo_name (经典组合名)。如果不属于上述经典组合，但其在该省份为著名道地特产，可以只填写 region_name 并将 combo_name 设为 null。若均不符合，请返回空数组 []。
+9. 分类别名及由来：推荐 1 到 3 个该植物在医药、文学或民间的别称，提供别称类型（必须是："药典标准名", "古书古名", "民间通用俗称", "各地方言名", "药房处方名", "市场商品名", "易混淆错用名" 之一），并详细解释该别名的由来背景或出处（origin_desc）。若无推荐，请返回空数组 []。
 
 请严格以下方的 JSON 格式返回，不要有任何 Markdown 代码块外的文字，也不要包含任何多余信息：
 {{
     "harvest_months": "5,6",
     "harvest_months_desc": "最佳采收说明文本...",
     "food_therapy_months": "6,7",
-    "food_therapy_months_desc": "食疗入药说明文本..."
+    "food_therapy_months_desc": "食疗入药说明文本...",
+    "medicinal_shape": "详细生成的药用形状与功效归经...",
+    "habitats": ["森林", "湿地"],
+    "rankings": [
+        {{
+            "ranking_type": "sweetest",
+            "ranking_value": "9.5分",
+            "description": "含有特异性甜味素，比蔗糖甜数百倍，是著名的天然甜味植物..."
+        }}
+    ],
+    "regions": [
+        {{
+            "region_name": "浙江",
+            "combo_name": "浙八味"
+        }}
+    ],
+    "aliases": [
+        {{
+            "alias_type": "古书古名",
+            "alias_name": "仙草",
+            "origin_desc": "在《神农本草经》中被称为仙草，因其具有清热利湿、凉血解毒之奇效..."
+        }}
+    ]
 }}"""
 
     api_key = "sk-ae72311f11fe4636b160dd539a08911f"
     payload = {
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
         "messages": [
             {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
             {"role": "user", "content": prompt}

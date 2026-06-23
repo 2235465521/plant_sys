@@ -330,6 +330,13 @@ function HabitatsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
     try {
       const res = await api.get("/features/habitats/summary");
       setSummary(res.data);
+      const cats = Array.from(new Set([
+        "森林", "草原", "湿地", "荒漠", "海洋",
+        ...(res.data || []).map((s: any) => s.habitat_type)
+      ])).filter(Boolean);
+      if (cats.length > 0 && (!selectedHabitat || !cats.includes(selectedHabitat))) {
+        setSelectedHabitat(cats[0]);
+      }
     } catch (e) {
       message.error("加载场景分类概况失败");
     } finally {
@@ -362,15 +369,24 @@ function HabitatsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
     }
   }, [selectedHabitat, page]);
 
+  const activeCategories = Array.from(new Set([
+    "森林", "草原", "湿地", "荒漠", "海洋",
+    ...summary.map(s => s.habitat_type)
+  ])).filter(Boolean);
+
   return (
     <div className="space-y-6 pt-2">
-      {/* 5 Cards */}
+      {/* Dynamic Cards */}
       <Spin spinning={summaryLoading}>
         <Row gutter={[16, 16]}>
-          {["森林", "草原", "湿地", "荒漠", "海洋"].map((type) => {
+          {activeCategories.map((type) => {
             const sumItem = summary.find(s => s.habitat_type === type);
             const count = sumItem ? sumItem.count : 0;
-            const style = habitatStyles[type] || { bg: "from-gray-600 to-slate-800", icon: "spa", title: type };
+            const style = habitatStyles[type] || {
+              bg: "from-slate-600 to-slate-800",
+              icon: "spa",
+              title: `${type}相关生态物种`
+            };
             const isSelected = selectedHabitat === type;
 
             return (
@@ -813,6 +829,10 @@ function ConfusionTab({ isAdmin, showPlantDetail }: { isAdmin: boolean; showPlan
   }, [searchVal]);
 
   const handleAddPlantToForm = (plant: Plant) => {
+    if (formItems.length >= 4) {
+      message.warning("易混淆专题比对最多支持 4 株植物并排比对");
+      return;
+    }
     if (formItems.some(x => x.plant_id === plant.id)) {
       message.warning("该植物已添加");
       return;

@@ -10,7 +10,7 @@ import {
   TableOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
-import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select } from "antd";
+import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select, Tag } from "antd";
 import type { MenuProps } from "antd";
 import type { Key } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -574,7 +574,17 @@ export default function PlantsPage() {
     setAiLoading(true);
     try {
       const res = await api.post(`/plants/${editing.id}/ai-enrich`);
-      const { harvest_months, harvest_months_desc, food_therapy_months, food_therapy_months_desc } = res.data;
+      const {
+        harvest_months,
+        harvest_months_desc,
+        food_therapy_months,
+        food_therapy_months_desc,
+        medicinal_shape,
+        habitats,
+        rankings,
+        regions,
+        aliases
+      } = res.data;
       form.setFieldsValue({
         harvest_months: harvest_months 
           ? harvest_months.split(",").map((m: string) => m.trim()).filter(Boolean) 
@@ -584,6 +594,11 @@ export default function PlantsPage() {
           ? food_therapy_months.split(",").map((m: string) => m.trim()).filter(Boolean) 
           : [],
         food_therapy_months_desc: food_therapy_months_desc || "",
+        medicinal_shape: medicinal_shape || "",
+        habitats: habitats || [],
+        rankings: rankings || [],
+        regions: regions || [],
+        aliases: aliases || [],
       });
       message.success("AI 自动提取完成！已填入表单，请点击确定保存");
     } catch (e: unknown) {
@@ -1254,10 +1269,37 @@ export default function PlantsPage() {
                         <span className="font-semibold text-on-surface-variant">国外分布：</span>
                         <span className="text-on-surface">{selected.distribution_abroad?.trim() || "无"}</span>
                       </p>
+                      {selected.regions && selected.regions.length > 0 && (
+                        <div className="mt-1 flex flex-col gap-1.5">
+                          <span className="font-semibold text-on-surface-variant">道地分布属性：</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selected.regions.map((reg, i) => (
+                              <Tag color="success" key={i} className="rounded-md font-medium m-0">
+                                {reg.region_name}{reg.combo_name ? `（${reg.combo_name}）` : ""}
+                              </Tag>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : detailTab === "morph" ? (
-                    <div className="whitespace-pre-wrap text-on-surface">
-                      {selected.morphology_text?.trim() || "暂无描述"}
+                    <div className="text-on-surface space-y-4">
+                      <div className="whitespace-pre-wrap leading-relaxed">
+                        {selected.morphology_text?.trim() || "暂无描述"}
+                      </div>
+                      {selected.habitats && selected.habitats.length > 0 && (
+                        <div className="border-t border-outline-variant/30 pt-3">
+                          <div className="text-xs font-semibold text-primary mb-1.5 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[15px]">nature_people</span>
+                            生境场景分类
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selected.habitats.map((h, i) => (
+                              <Tag color="cyan" key={i} className="rounded-md font-medium m-0">{h}</Tag>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : detailTab === "harvest" ? (
                     <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
@@ -1268,10 +1310,38 @@ export default function PlantsPage() {
                       {selected.food_therapy_months_desc?.trim() || "暂无描述"}
                     </div>
                   ) : (
-                    <p className="mb-4">
-                      <span className="font-semibold text-on-surface">药用形状：</span>{" "}
-                      {selected.medicinal_shape?.trim() || "暂无记载"}
-                    </p>
+                    <div className="flex flex-col gap-4 text-on-surface">
+                      <div>
+                        <span className="font-semibold text-on-surface-variant block mb-1">药用形状与价值：</span>
+                        <p className="text-on-surface whitespace-pre-wrap leading-relaxed m-0">
+                          {selected.medicinal_shape?.trim() || "暂无记载"}
+                        </p>
+                      </div>
+                      {selected.rankings && selected.rankings.length > 0 && (
+                        <div className="border-t border-outline-variant/30 pt-3">
+                          <div className="text-xs font-semibold text-primary mb-2 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[16px]">emoji_events</span>
+                            特色榜单荣誉
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {selected.rankings.map((r, i) => {
+                              const rankLabel = r.ranking_type === "sweetest" ? "最甜植物" :
+                                                r.ranking_type === "bitterest" ? "最苦植物" :
+                                                r.ranking_type === "rarity" ? "珍稀物种" : "特殊生长周期";
+                              return (
+                                <div key={i} className="rounded bg-amber-50/40 p-2.5 text-xs border border-amber-200/40 flex flex-col gap-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-bold text-amber-700 border border-amber-500/20">{rankLabel}</span>
+                                    {r.ranking_value && <span className="font-bold text-on-surface">值: {r.ranking_value}</span>}
+                                  </div>
+                                  {r.description && <span className="text-on-surface-variant leading-relaxed mt-0.5">{r.description}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (

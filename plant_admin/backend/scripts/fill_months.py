@@ -88,25 +88,52 @@ def fetch_ai_enrichment(name, sci_name, morph, med, hab):
 - 中文名称: {name}
 - 拉丁名: {sci_name}
 - 形态描述: {morph}
-- 药用性状: {med}
+- 现有药用性状: {med}
 - 生境: {hab}
 
-请帮我分析该植物的：
+请帮我深入分析该植物，并生成结构化数据：
 1. 最佳采收月份：请列出最适合采收的月份数字，多个月份用逗号分隔，如 "5,6" 或仅一个数字如 "8"。如果没有明确文献，请根据其开花/结果期或通用药用部位（根、茎、叶、花、果）规律进行推断。
 2. 最佳采收详细说明：请给出一段详细的中文说明，解释为什么选择这些月份（如开花期、植株成熟度、有效成分含量等），并附带采收和炮制建议（如阴干、烘干等），字数在 100-250 字左右。
-3. 适合食疗入药月份：请列出适合作为食疗或药膳入药的月份数字，多个月份用逗号分隔，如 "6,7"。通常与最佳采收月接近或略晚，或为适宜服用调理的季节。
+3. 适合食疗入药月份：请列出适合作为食疗或药膳入药的月份数字，多个月份用逗号分隔，如 "6,7"。通常与最佳采收月接近或略晚，或为适宜物候调理的季节。
 4. 食疗入药详细说明：请给出一段详细的说明，指出食疗或入药的注意事项、鲜品/干品的使用安全风险（如有无毒性、需如何处理如干燥煎煮）、经典古籍记载（如没有特定古籍，可指出同属药材通用逻辑）及服用建议，字数在 150-300 字左右。
+5. 药用性状/药用形状说明：如果该植物现有的药用性状描述不完整或无记录，请结合其植物志与药材典籍，推断生成详细的药用形状、性味归经、功效主治说明，字数在 150-300 字左右。
+6. 生境场景分类：从 "森林", "草原", "湿地", "荒漠", "海洋" 中选择最适合它的一个或多个分类，如果有其他特殊生境（如 "高山雪线", "农田", "山坡荒地" ），也可以直接生成新分类名称并加入列表中。以字符串数组返回。
+7. 特色排行榜推荐：如果该植物具备某些极端或奇特特征（极甜、极苦、国家级珍稀濒危、或生长花期极其漫长/特殊），请为其推荐排行榜分类（ranking_type 必须是: "sweetest"、"bitterest"、"rarity"、"growth_cycle" 之一），并填写指标数值（如 "9.5分", "一级保护"）和详细理由。若均不符合，请返回空数组 []。
+8. 道地药材产区关联：若该植物属于某省份的著名道地药材或经典药材名（如 浙江的“浙八味”、河南的“四大怀药”、四川的“川药”、广东的“广药”、吉林的“关药”、云南的“云药”等），请对应生成 region_name (省份) 和 combo_name (经典组合名)。如果不属于上述经典组合，但其在该省份为著名道地特产，可以只填写 region_name 并将 combo_name 设为 null。若均不符合，请返回空数组 []。
+9. 分类别名及由来：推荐 1 到 3 个该植物在医药、文学或民间的别称，提供别称类型（必须是："药典标准名", "古书古名", "民间通用俗称", "各地方言名", "药房处方名", "市场商品名", "易混淆错用名" 之一），并详细解释该别名的由来背景或出处（origin_desc）。若无推荐，请返回空数组 []。
 
 请严格以下方的 JSON 格式返回，不要有任何 Markdown 代码块外的文字，也不要包含任何多余信息：
 {{
     "harvest_months": "5,6",
     "harvest_months_desc": "最佳采收说明文本...",
     "food_therapy_months": "6,7",
-    "food_therapy_months_desc": "食疗入药说明文本..."
+    "food_therapy_months_desc": "食疗入药说明文本...",
+    "medicinal_shape": "详细生成的药用形状与功效归经...",
+    "habitats": ["森林", "湿地"],
+    "rankings": [
+        {{
+            "ranking_type": "sweetest",
+            "ranking_value": "9.5分",
+            "description": "含有特异性甜味素，比蔗糖甜数百倍，是著名的天然甜味植物..."
+        }}
+    ],
+    "regions": [
+        {{
+            "region_name": "浙江",
+            "combo_name": "浙八味"
+        }}
+    ],
+    "aliases": [
+        {{
+            "alias_type": "古书古名",
+            "alias_name": "仙草",
+            "origin_desc": "在《神农本草经》中被称为仙草，因其具有清热利湿、凉血解毒之奇效..."
+        }}
+    ]
 }}"""
 
     payload = {
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
         "messages": [
             {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
             {"role": "user", "content": prompt}
@@ -140,6 +167,12 @@ def fetch_ai_enrichment(name, sci_name, morph, med, hab):
     raise Exception("多次尝试后依然调用失败")
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="AI Plant Details Enrichment Script")
+    parser.add_argument("--limit", type=int, default=None, help="Maximum number of plants to process")
+    parser.add_argument("--offset", type=int, default=None, help="Database offset for query")
+    args = parser.parse_args()
+
     load_env()
     conn = get_db_connection()
     print("数据库连接成功！")
@@ -151,7 +184,13 @@ def main():
         WHERE harvest_months_desc IS NULL OR harvest_months_desc = ''
         ORDER BY id ASC
     """
-    
+    if args.limit is not None:
+        sql_query += f" LIMIT {args.limit}"
+        if args.offset is not None:
+            sql_query += f" OFFSET {args.offset}"
+    elif args.offset is not None:
+        sql_query += f" LIMIT 18446744073709551615 OFFSET {args.offset}"
+        
     with conn.cursor() as cur:
         cur.execute(sql_query)
         plants = cur.fetchall()
@@ -175,12 +214,10 @@ def main():
             name = p.get("vernacular_name") or ""
             sci_name = p.get("scientific_name") or ""
             
-            # 使用别名或学名代表名称
             display_name = name if name else (sci_name if sci_name else f"ID:{plant_id}")
             print(f"[{idx + 1}/{total_to_process}] 正在处理植物: {display_name} (ID: {plant_id}) ...")
             
             try:
-                # 提取描述并分析月份
                 ai_data = fetch_ai_enrichment(
                     name=name,
                     sci_name=sci_name,
@@ -194,37 +231,75 @@ def main():
                 harvest_months_desc = ai_data.get("harvest_months_desc")
                 food_therapy_months = ai_data.get("food_therapy_months")
                 food_therapy_months_desc = ai_data.get("food_therapy_months_desc")
+                medicinal_shape = ai_data.get("medicinal_shape")
                 
-                # 更新至数据库
-                sql_update = """
-                    UPDATE plant_classification_import
-                    SET harvest_months = %s,
-                        harvest_months_desc = %s,
-                        food_therapy_months = %s,
-                        food_therapy_months_desc = %s
-                    WHERE id = %s
-                """
+                habitats = ai_data.get("habitats") or []
+                rankings = ai_data.get("rankings") or []
+                regions = ai_data.get("regions") or []
+                aliases = ai_data.get("aliases") or []
+                
                 with conn.cursor() as cur:
+                    # 1. 更新主表描述与药用形状
+                    sql_update = """
+                        UPDATE plant_classification_import
+                        SET harvest_months = %s,
+                            harvest_months_desc = %s,
+                            food_therapy_months = %s,
+                            food_therapy_months_desc = %s,
+                            medicinal_shape = %s
+                        WHERE id = %s
+                    """
                     cur.execute(sql_update, (
                         harvest_months,
                         harvest_months_desc,
                         food_therapy_months,
                         food_therapy_months_desc,
+                        medicinal_shape,
                         plant_id
                     ))
+                    
+                    # 2. 清除并重新插入生境
+                    cur.execute("DELETE FROM plant_habitats WHERE plant_id = %s", (plant_id,))
+                    for h in habitats:
+                        cur.execute("INSERT INTO plant_habitats (plant_id, habitat_type) VALUES (%s, %s)", (plant_id, h))
+                        
+                    # 3. 清除并重新插入榜单
+                    cur.execute("DELETE FROM plant_rankings WHERE plant_id = %s", (plant_id,))
+                    for r in rankings:
+                        cur.execute(
+                            "INSERT INTO plant_rankings (plant_id, ranking_type, ranking_value, description) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (plant_id, r.get("ranking_type"), r.get("ranking_value"), r.get("description"))
+                        )
+                        
+                    # 4. 清除并重新插入道地药材地
+                    cur.execute("DELETE FROM plant_regions WHERE plant_id = %s", (plant_id,))
+                    for reg in regions:
+                        cur.execute(
+                            "INSERT INTO plant_regions (plant_id, region_name, combo_name) "
+                            "VALUES (%s, %s, %s)",
+                            (plant_id, reg.get("region_name"), reg.get("combo_name"))
+                        )
+                        
+                    # 5. 清除并重新插入别称
+                    cur.execute("DELETE FROM plant_aliases WHERE plant_id = %s", (plant_id,))
+                    for al in aliases:
+                        cur.execute(
+                            "INSERT INTO plant_aliases (plant_id, alias_type, alias_name, origin_desc) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (plant_id, al.get("alias_type"), al.get("alias_name"), al.get("origin_desc"))
+                        )
+                        
                 conn.commit()
-                
                 success_count += 1
-                print(f"  成功补全! 采收月: {harvest_months}, 食疗月: {food_therapy_months}")
+                print(f"  成功补全! 采收月: {harvest_months}, 食疗月: {food_therapy_months}, 别名数: {len(aliases)}")
                 
             except Exception as ex:
                 fail_count += 1
                 print(f"  处理失败 (ID: {plant_id}): {ex}")
                 
-            # 限制访问频率，防被拉黑/过载 (每秒最多调用一次)
             time.sleep(0.8)
             
-            # 每隔 10 个打印一次阶段统计
             if (idx + 1) % 10 == 0:
                 percent = ((idx + 1) / total_to_process) * 100
                 print(f"\n--- 阶段统计: 已完成 {percent:.2f}% | 成功: {success_count} | 失败: {fail_count} ---\n")
