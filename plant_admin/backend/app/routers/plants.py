@@ -1145,7 +1145,7 @@ def ai_enrich_plant(
     ]
 }}"""
 
-    api_key = "sk-ae72311f11fe4636b160dd539a08911f"
+    api_key = "sk-2a32fdc69e89434eafe99a88999380a2"
     payload = {
         "model": "deepseek-v4-flash",
         "messages": [

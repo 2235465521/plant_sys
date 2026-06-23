@@ -22,7 +22,7 @@ except ImportError:
     sys.exit(1)
 
 # API 密钥与端点配置
-API_KEY = "sk-ae72311f11fe4636b160dd539a08911f"
+API_KEY = "sk-2a32fdc69e89434eafe99a88999380a2"
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 # 加载 .env 配置文件
