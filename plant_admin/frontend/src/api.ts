@@ -86,7 +86,42 @@ export interface Plant {
   image_server_paths: string[] | null;
   harvest_months?: string | null;
   food_therapy_months?: string | null;
+  harvest_months_desc?: string | null;
+  food_therapy_months_desc?: string | null;
   aliases?: PlantAlias[] | null;
+  habitats?: string[] | null;
+  rankings?: PlantRanking[] | null;
+  regions?: PlantRegion[] | null;
+}
+
+export interface PlantRanking {
+  id?: number;
+  plant_id?: number;
+  ranking_type: string;
+  ranking_value?: string | null;
+  description?: string | null;
+}
+
+export interface PlantRegion {
+  id?: number;
+  plant_id?: number;
+  region_name: string;
+  combo_name?: string | null;
+}
+
+export interface PlantConfusionItem {
+  id?: number;
+  group_id?: number;
+  plant_id: number;
+  distinguish_point?: string | null;
+  plant?: Plant | null;
+}
+
+export interface PlantConfusionGroup {
+  id?: number;
+  group_name: string;
+  description?: string | null;
+  items: PlantConfusionItem[];
 }
 
 export interface ExportLog {

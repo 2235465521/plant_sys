@@ -77,6 +77,8 @@ class PlantBase(BaseModel):
     image_server_paths: Optional[list[str]] = None
     harvest_months: Optional[str] = None
     food_therapy_months: Optional[str] = None
+    harvest_months_desc: Optional[str] = None
+    food_therapy_months_desc: Optional[str] = None
 
     @field_validator("image_server_paths", mode="before")
     @classmethod
@@ -118,15 +120,49 @@ class PlantAliasOut(PlantAliasBase):
     plant_id: int
     model_config = ConfigDict(from_attributes=True)
 
+class PlantRankingBase(BaseModel):
+    ranking_type: str
+    ranking_value: Optional[str] = None
+    description: Optional[str] = None
+
+class PlantRankingCreate(PlantRankingBase):
+    pass
+
+class PlantRankingOut(PlantRankingBase):
+    id: int
+    plant_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+class PlantRegionBase(BaseModel):
+    region_name: str
+    combo_name: Optional[str] = None
+
+class PlantRegionCreate(PlantRegionBase):
+    pass
+
+class PlantRegionOut(PlantRegionBase):
+    id: int
+    plant_id: int
+    model_config = ConfigDict(from_attributes=True)
+
 class PlantCreate(PlantBase):
     aliases: Optional[list[PlantAliasCreate]] = None
+    habitats: Optional[list[str]] = None
+    rankings: Optional[list[PlantRankingCreate]] = None
+    regions: Optional[list[PlantRegionCreate]] = None
 
 class PlantUpdate(PlantBase):
     aliases: Optional[list[PlantAliasCreate]] = None
+    habitats: Optional[list[str]] = None
+    rankings: Optional[list[PlantRankingCreate]] = None
+    regions: Optional[list[PlantRegionCreate]] = None
 
 class PlantOut(PlantBase):
     id: int
     aliases: Optional[list[PlantAliasOut]] = None
+    habitats: Optional[list[str]] = None
+    rankings: Optional[list[PlantRankingOut]] = None
+    regions: Optional[list[PlantRegionOut]] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -191,3 +227,40 @@ class ExportLogListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class PlantConfusionItemBase(BaseModel):
+    plant_id: int
+    distinguish_point: Optional[str] = None
+
+
+class PlantConfusionItemCreate(PlantConfusionItemBase):
+    pass
+
+
+class PlantConfusionItemOut(PlantConfusionItemBase):
+    id: int
+    group_id: int
+    plant: Optional[PlantOut] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlantConfusionGroupBase(BaseModel):
+    group_name: str
+    description: Optional[str] = None
+
+
+class PlantConfusionGroupCreate(PlantConfusionGroupBase):
+    items: list[PlantConfusionItemCreate]
+
+
+class PlantConfusionGroupUpdate(BaseModel):
+    group_name: Optional[str] = None
+    description: Optional[str] = None
+    items: Optional[list[PlantConfusionItemCreate]] = None
+
+
+class PlantConfusionGroupOut(PlantConfusionGroupBase):
+    id: int
+    items: list[PlantConfusionItemOut]
+    model_config = ConfigDict(from_attributes=True)

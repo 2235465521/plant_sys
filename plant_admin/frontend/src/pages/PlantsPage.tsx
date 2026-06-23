@@ -209,7 +209,7 @@ export default function PlantsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(36);
   const [selected, setSelected] = useState<Plant | null>(null);
-  const [detailTab, setDetailTab] = useState<"basic" | "morph" | "medicinal">("basic");
+  const [detailTab, setDetailTab] = useState<"basic" | "morph" | "medicinal" | "harvest" | "food_therapy">("basic");
   const [imageTab, setImageTab] = useState<"web" | "upload">("web");
   const [showTable, setShowTable] = useState(false);
   const [tableSelectedKeys, setTableSelectedKeys] = useState<Key[]>([]);
@@ -224,6 +224,7 @@ export default function PlantsPage() {
   const [mediaVersion, setMediaVersion] = useState(0);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [deletingImage, setDeletingImage] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const [downloadPick, setDownloadPick] = useState<Set<number>>(new Set());
   const [jpegDownloadMode, setJpegDownloadMode] = useState<"idle" | "current" | "batch">("idle");
@@ -241,6 +242,16 @@ export default function PlantsPage() {
 
   function bumpPlantListReload() {
     setReloadTick((t) => t + 1);
+  }
+
+  async function selectPlant(p: Plant) {
+    setSelected(p);
+    try {
+      const res = await api.get<Plant>(`/plants/${p.id}`);
+      setSelected(res.data);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   useEffect(() => {
@@ -499,7 +510,7 @@ export default function PlantsPage() {
   };
 
   function handleCardClick(e: React.MouseEvent<HTMLButtonElement>, p: Plant, idx: number) {
-    setSelected(p);
+    void selectPlant(p);
     if (!cardMultiSelect) return;
     const key = p.id as Key;
     if (e.shiftKey && lastCardClickIdx.current >= 0) {
@@ -519,20 +530,68 @@ export default function PlantsPage() {
     lastCardClickIdx.current = idx;
   }
 
-  function openEdit(p: Plant) {
-    setEditing(p);
-    const { image_server_paths: _omit, ...formValues } = p;
-    form.setFieldsValue({
-      ...formValues,
-      aliases: formValues.aliases || undefined,
-      harvest_months: formValues.harvest_months 
-        ? formValues.harvest_months.split(",").map(m => m.trim()).filter(Boolean) 
-        : [],
-      food_therapy_months: formValues.food_therapy_months 
-        ? formValues.food_therapy_months.split(",").map(m => m.trim()).filter(Boolean) 
-        : [],
-    });
+  async function openEdit(p: Plant) {
     setEditorOpen(true);
+    setEditing(p);
+    try {
+      const res = await api.get<Plant>(`/plants/${p.id}`);
+      const fullPlant = res.data;
+      setEditing(fullPlant);
+      const { image_server_paths: _omit, ...formValues } = fullPlant;
+      form.setFieldsValue({
+        ...formValues,
+        aliases: formValues.aliases || undefined,
+        habitats: fullPlant.habitats || [],
+        rankings: fullPlant.rankings || [],
+        regions: fullPlant.regions || [],
+        harvest_months: formValues.harvest_months 
+          ? formValues.harvest_months.split(",").map(m => m.trim()).filter(Boolean) 
+          : [],
+        food_therapy_months: formValues.food_therapy_months 
+          ? formValues.food_therapy_months.split(",").map(m => m.trim()).filter(Boolean) 
+          : [],
+      });
+    } catch (e) {
+      const { image_server_paths: _omit, ...formValues } = p;
+      form.setFieldsValue({
+        ...formValues,
+        aliases: formValues.aliases || undefined,
+        habitats: p.habitats || [],
+        rankings: p.rankings || [],
+        regions: p.regions || [],
+        harvest_months: formValues.harvest_months 
+          ? formValues.harvest_months.split(",").map(m => m.trim()).filter(Boolean) 
+          : [],
+        food_therapy_months: formValues.food_therapy_months 
+          ? formValues.food_therapy_months.split(",").map(m => m.trim()).filter(Boolean) 
+          : [],
+      });
+    }
+  }
+
+  async function handleAiEnrich() {
+    if (!editing) return;
+    setAiLoading(true);
+    try {
+      const res = await api.post(`/plants/${editing.id}/ai-enrich`);
+      const { harvest_months, harvest_months_desc, food_therapy_months, food_therapy_months_desc } = res.data;
+      form.setFieldsValue({
+        harvest_months: harvest_months 
+          ? harvest_months.split(",").map((m: string) => m.trim()).filter(Boolean) 
+          : [],
+        harvest_months_desc: harvest_months_desc || "",
+        food_therapy_months: food_therapy_months 
+          ? food_therapy_months.split(",").map((m: string) => m.trim()).filter(Boolean) 
+          : [],
+        food_therapy_months_desc: food_therapy_months_desc || "",
+      });
+      message.success("AI 自动提取完成！已填入表单，请点击确定保存");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || "AI 提取失败，请稍后重试");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   async function save() {
@@ -1048,7 +1107,7 @@ export default function PlantsPage() {
                   onClick: (e) => {
                     // Don't double-fire when clicking the checkbox cell itself
                     if ((e.target as HTMLElement).closest(".ant-checkbox-wrapper")) return;
-                    setSelected(p);
+                    void selectPlant(p);
                     setTableSelectedKeys((prev) => {
                       const key = p.id as Key;
                       return prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
@@ -1121,13 +1180,35 @@ export default function PlantsPage() {
               <button
                 type="button"
                 onClick={() => setDetailTab("medicinal")}
-                className={`py-4 font-label-sm text-label-sm ${
+                className={`mr-8 py-4 font-label-sm text-label-sm ${
                   detailTab === "medicinal"
                     ? "border-b-2 border-primary font-semibold text-primary"
                     : "text-on-surface-variant hover:text-primary"
                 }`}
               >
                 药用价值
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab("harvest")}
+                className={`mr-8 py-4 font-label-sm text-label-sm ${
+                  detailTab === "harvest"
+                    ? "border-b-2 border-primary font-semibold text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`}
+              >
+                最佳采收
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab("food_therapy")}
+                className={`py-4 font-label-sm text-label-sm ${
+                  detailTab === "food_therapy"
+                    ? "border-b-2 border-primary font-semibold text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`}
+              >
+                食疗入药
               </button>
             </div>
             <div className="p-6">
@@ -1177,6 +1258,14 @@ export default function PlantsPage() {
                   ) : detailTab === "morph" ? (
                     <div className="whitespace-pre-wrap text-on-surface">
                       {selected.morphology_text?.trim() || "暂无描述"}
+                    </div>
+                  ) : detailTab === "harvest" ? (
+                    <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
+                      {selected.harvest_months_desc?.trim() || "暂无描述"}
+                    </div>
+                  ) : detailTab === "food_therapy" ? (
+                    <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
+                      {selected.food_therapy_months_desc?.trim() || "暂无描述"}
                     </div>
                   ) : (
                     <p className="mb-4">
@@ -1453,6 +1542,19 @@ export default function PlantsPage() {
         destroyOnHidden
       >
         <Form form={form} layout="vertical">
+          {editing && (
+            <div className="mb-4 flex justify-end">
+              <Button 
+                type="primary" 
+                onClick={handleAiEnrich} 
+                loading={aiLoading} 
+                className="bg-primary hover:bg-primary-container"
+                icon={<span className="material-symbols-outlined text-[16px] align-middle">bolt</span>}
+              >
+                AI 一键智能填充（提取时令与描述）
+              </Button>
+            </div>
+          )}
           <Form.Item name="vernacular_name" label="植物中文名">
             <Input />
           </Form.Item>
@@ -1508,6 +1610,126 @@ export default function PlantsPage() {
               options={[...Array(12)].map((_, i) => ({ label: `${i + 1}月`, value: String(i + 1) }))}
             />
           </Form.Item>
+          <Form.Item name="harvest_months_desc" label="最佳采收详细说明">
+            <Input.TextArea rows={3} placeholder="AI 提取或手动输入最佳采收依据和建议" />
+          </Form.Item>
+          <Form.Item name="food_therapy_months_desc" label="食疗入药详细说明">
+            <Input.TextArea rows={3} placeholder="AI 提取或手动输入食疗安全与入药依据建议" />
+          </Form.Item>
+
+          {/* Feature 3: Habitats */}
+          <Form.Item name="habitats" label="生境分类（多选）">
+            <Select
+              mode="multiple"
+              placeholder="请选择适用的生境场景分类"
+              allowClear
+              options={[
+                { label: "森林", value: "森林" },
+                { label: "草原", value: "草原" },
+                { label: "湿地", value: "湿地" },
+                { label: "荒漠", value: "荒漠" },
+                { label: "海洋", value: "海洋" }
+              ]}
+            />
+          </Form.Item>
+
+          {/* Feature 4: Rankings */}
+          <div className="mb-2 mt-4 font-semibold text-on-surface">特色榜单配置</div>
+          <Form.List name="rankings">
+            {(fields, { add, remove }) => (
+              <div className="flex flex-col gap-3">
+                {fields.map(({ key, name, ...restField }) => (
+                  <div key={key} className="flex gap-2 items-start bg-surface-container-low p-3 rounded border border-outline-variant relative group transition-colors hover:border-primary/50">
+                    <div className="flex-1 flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'ranking_type']}
+                          className="mb-0 w-44"
+                          rules={[{ required: true, message: '请选择排行榜类型' }]}
+                        >
+                          <Select placeholder="榜单类型" options={[
+                            { label: "最甜植物 (sweetest)", value: "sweetest" },
+                            { label: "最苦植物 (bitterest)", value: "bitterest" },
+                            { label: "珍稀濒危物种 (rarity)", value: "rarity" },
+                            { label: "特殊生长周期 (growth_cycle)", value: "growth_cycle" }
+                          ]} />
+                        </Form.Item>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'ranking_value']}
+                          className="mb-0 flex-1"
+                        >
+                          <Input placeholder="排行数值/指标 (选填，如：1st, 9.8)" />
+                        </Form.Item>
+                      </div>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'description']}
+                        className="mb-0"
+                      >
+                        <Input placeholder="上榜理由与描述说明" />
+                      </Form.Item>
+                    </div>
+                    <Button 
+                      type="text" 
+                      danger 
+                      className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1"
+                      icon={<span className="material-symbols-outlined text-[18px]">close</span>} 
+                      onClick={() => remove(name)} 
+                    />
+                  </div>
+                ))}
+                <Form.Item className="mb-0">
+                  <Button type="dashed" onClick={() => add()} block icon={<span className="material-symbols-outlined text-[18px] align-middle">add</span>}>
+                    添加特色上榜
+                  </Button>
+                </Form.Item>
+              </div>
+            )}
+          </Form.List>
+
+          {/* Feature 5: Regional Daodi */}
+          <div className="mb-2 mt-4 font-semibold text-on-surface">道地药材地配置</div>
+          <Form.List name="regions">
+            {(fields, { add, remove }) => (
+              <div className="flex flex-col gap-3">
+                {fields.map(({ key, name, ...restField }) => (
+                  <div key={key} className="flex gap-2 items-start bg-surface-container-low p-3 rounded border border-outline-variant relative group transition-colors hover:border-primary/50">
+                    <div className="flex-1 flex gap-2">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'region_name']}
+                        className="mb-0 flex-1"
+                        rules={[{ required: true, message: '请输入省份名称' }]}
+                      >
+                        <Input placeholder="省份名称，如：浙江, 河南, 四川" />
+                      </Form.Item>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'combo_name']}
+                        className="mb-0 flex-1"
+                      >
+                        <Input placeholder="经典道地药名组合 (选填，如：浙八味, 四大怀药)" />
+                      </Form.Item>
+                    </div>
+                    <Button 
+                      type="text" 
+                      danger 
+                      className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1"
+                      icon={<span className="material-symbols-outlined text-[18px]">close</span>} 
+                      onClick={() => remove(name)} 
+                    />
+                  </div>
+                ))}
+                <Form.Item className="mb-0">
+                  <Button type="dashed" onClick={() => add()} block icon={<span className="material-symbols-outlined text-[18px] align-middle">add</span>}>
+                    添加道地属性
+                  </Button>
+                </Form.Item>
+              </div>
+            )}
+          </Form.List>
 
           <div className="mb-2 mt-4 font-semibold text-on-surface">分类别名配置</div>
           <Form.List name="aliases">

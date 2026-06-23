@@ -14,6 +14,7 @@ import ExportLogsPage from "./pages/ExportLogsPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import PlantsPage from "./pages/PlantsPage";
+import FeaturesPage from "./pages/FeaturesPage";
 import { PLANT_SIDEBAR_FLASH_EVENT, api, getToken, setToken } from "./api";
 
 type TaxonBucketDto = { value: string; count: number };
@@ -598,6 +599,28 @@ function AppShell() {
             >
               首页
             </Link>
+            <Link
+              to="/features"
+              className={`border-b-2 py-5 font-label-sm text-label-sm ${
+                loc.pathname.startsWith("/features")
+                  ? "border-primary font-semibold text-primary"
+                  : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
+              }`}
+            >
+              特色专区
+            </Link>
+            {isAdmin && (
+              <Link
+                to="/export-logs"
+                className={`border-b-2 py-5 font-label-sm text-label-sm ${
+                  loc.pathname.startsWith("/export-logs")
+                    ? "border-primary font-semibold text-primary"
+                    : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
+                }`}
+              >
+                导出审计
+              </Link>
+            )}
             <a
               href="https://www.plantplus.cn/"
               target="_blank"
@@ -684,6 +707,7 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route element={<RequireAuth />}>
         <Route path="/plants" element={<PlantsPage />} />
+        <Route path="/features" element={<FeaturesPage />} />
         <Route path="/export-logs" element={<ExportLogsPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/plants" replace />} />

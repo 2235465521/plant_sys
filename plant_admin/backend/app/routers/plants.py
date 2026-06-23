@@ -99,10 +99,22 @@ def _row_as_plant_out_dict(row: dict) -> dict:
     return d
 
 
-def plant_row_to_out(row: dict, aliases: list[dict] = None) -> PlantOut:
+def plant_row_to_out(
+    row: dict,
+    aliases: list[dict] = None,
+    habitats: list[str] = None,
+    rankings: list[dict] = None,
+    regions: list[dict] = None
+) -> PlantOut:
     d = _row_as_plant_out_dict(row)
     if aliases is not None:
         d["aliases"] = aliases
+    if habitats is not None:
+        d["habitats"] = habitats
+    if rankings is not None:
+        d["rankings"] = rankings
+    if regions is not None:
+        d["regions"] = regions
     return PlantOut.model_validate(d)
 
 
@@ -133,6 +145,8 @@ _PLANT_COLS = (
     "image_server_paths",
     "harvest_months",
     "food_therapy_months",
+    "harvest_months_desc",
+    "food_therapy_months_desc",
 )
 
 
@@ -171,6 +185,8 @@ def plant_to_dict(p: dict) -> dict:
         "image_server_paths": _deserialize_paths_from_db(p.get("image_server_paths")),
         "harvest_months": p.get("harvest_months"),
         "food_therapy_months": p.get("food_therapy_months"),
+        "harvest_months_desc": p.get("harvest_months_desc"),
+        "food_therapy_months_desc": p.get("food_therapy_months_desc"),
     }
 
 
@@ -820,7 +836,13 @@ def get_plant(
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
         aliases = cur.fetchall() or []
-    return plant_row_to_out(p, aliases=aliases)
+        cur.execute("SELECT habitat_type FROM plant_habitats WHERE plant_id = %s", (plant_id,))
+        habitats = [r["habitat_type"] for r in cur.fetchall() or []]
+        cur.execute("SELECT * FROM plant_rankings WHERE plant_id = %s", (plant_id,))
+        rankings = cur.fetchall() or []
+        cur.execute("SELECT * FROM plant_regions WHERE plant_id = %s", (plant_id,))
+        regions = cur.fetchall() or []
+    return plant_row_to_out(p, aliases=aliases, habitats=habitats, rankings=rankings, regions=regions)
 
 
 @router.post("", response_model=PlantOut)
@@ -831,6 +853,10 @@ def create_plant(
 ):
     data = body.model_dump()
     aliases_data = data.pop("aliases", None)
+    habitats_data = data.pop("habitats", None)
+    rankings_data = data.pop("rankings", None)
+    regions_data = data.pop("regions", None)
+    
     cols = [c for c in _PLANT_COLS if c in data]
     vals = [_sql_column_value(c, data[c]) for c in cols]
     with conn.cursor() as cur:
@@ -841,24 +867,34 @@ def create_plant(
         ph = ",".join(["%s"] * len(insert_cols))
         sql = f"INSERT INTO plant_classification_import ({','.join(insert_cols)}) VALUES ({ph})"
         cur.execute(sql, insert_vals)
-    conn.commit()
-    _sync_plant_auto_increment(conn)
-    
-    if aliases_data:
-        with conn.cursor() as cur:
-            for alias in aliases_data:
+        
+        if aliases_data:
+            for item in aliases_data:
                 cur.execute(
                     "INSERT INTO plant_aliases (plant_id, alias_type, alias_name, origin_desc) VALUES (%s, %s, %s, %s)",
-                    (new_id, alias["alias_type"], alias["alias_name"], alias.get("origin_desc"))
+                    (new_id, item["alias_type"], item["alias_name"], item.get("origin_desc")),
                 )
-        conn.commit()
-        
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (new_id,))
-        row = cur.fetchone()
-        cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (new_id,))
-        aliases = cur.fetchall() or []
-    return plant_row_to_out(row, aliases=aliases)
+        if habitats_data:
+            for h in habitats_data:
+                cur.execute(
+                    "INSERT INTO plant_habitats (plant_id, habitat_type) VALUES (%s, %s)",
+                    (new_id, h),
+                )
+        if rankings_data:
+            for r in rankings_data:
+                cur.execute(
+                    "INSERT INTO plant_rankings (plant_id, ranking_type, ranking_value, description) VALUES (%s, %s, %s, %s)",
+                    (new_id, r["ranking_type"], r.get("ranking_value"), r.get("description")),
+                )
+        if regions_data:
+            for reg in regions_data:
+                cur.execute(
+                    "INSERT INTO plant_regions (plant_id, region_name, combo_name) VALUES (%s, %s, %s)",
+                    (new_id, reg["region_name"], reg.get("combo_name")),
+                )
+    conn.commit()
+    _sync_plant_auto_increment(conn)
+    return get_plant(new_id, conn)
 
 
 @router.put("/{plant_id}", response_model=PlantOut)
@@ -873,39 +909,51 @@ def update_plant(
         if not cur.fetchone():
             raise HTTPException(404, "记录不存在")
             
-    patch = body.model_dump(exclude_unset=True)
-    aliases_data = patch.pop("aliases", None)
+    data = body.model_dump()
+    aliases_data = data.pop("aliases", None)
+    habitats_data = data.pop("habitats", None)
+    rankings_data = data.pop("rankings", None)
+    regions_data = data.pop("regions", None)
     
-    if aliases_data is not None:
-        with conn.cursor() as cur:
+    patch = {k: v for k, v in data.items() if v is not None or k in _PLANT_COLS}
+    
+    with conn.cursor() as cur:
+        if patch:
+            sets = ",".join([f"{k}=%s" for k in patch])
+            vals = [_sql_column_value(k, v) for k, v in patch.items()] + [plant_id]
+            sql = f"UPDATE plant_classification_import SET {sets} WHERE id=%s"
+            cur.execute(sql, vals)
+            
+        if aliases_data is not None:
             cur.execute("DELETE FROM plant_aliases WHERE plant_id = %s", (plant_id,))
-            for alias in aliases_data:
+            for item in aliases_data:
                 cur.execute(
                     "INSERT INTO plant_aliases (plant_id, alias_type, alias_name, origin_desc) VALUES (%s, %s, %s, %s)",
-                    (plant_id, alias["alias_type"], alias["alias_name"], alias.get("origin_desc"))
+                    (plant_id, item["alias_type"], item["alias_name"], item.get("origin_desc")),
                 )
-        conn.commit()
-
-    if not patch:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (plant_id,))
-            row = cur.fetchone()
-            cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
-            aliases = cur.fetchall() or []
-        return plant_row_to_out(row, aliases=aliases)
-        
-    sets = ",".join([f"{k}=%s" for k in patch])
-    vals = [_sql_column_value(k, v) for k, v in patch.items()] + [plant_id]
-    sql = f"UPDATE plant_classification_import SET {sets} WHERE id=%s"
-    with conn.cursor() as cur:
-        cur.execute(sql, vals)
+        if habitats_data is not None:
+            cur.execute("DELETE FROM plant_habitats WHERE plant_id = %s", (plant_id,))
+            for h in habitats_data:
+                cur.execute(
+                    "INSERT INTO plant_habitats (plant_id, habitat_type) VALUES (%s, %s)",
+                    (plant_id, h),
+                )
+        if rankings_data is not None:
+            cur.execute("DELETE FROM plant_rankings WHERE plant_id = %s", (plant_id,))
+            for r in rankings_data:
+                cur.execute(
+                    "INSERT INTO plant_rankings (plant_id, ranking_type, ranking_value, description) VALUES (%s, %s, %s, %s)",
+                    (plant_id, r["ranking_type"], r.get("ranking_value"), r.get("description")),
+                )
+        if regions_data is not None:
+            cur.execute("DELETE FROM plant_regions WHERE plant_id = %s", (plant_id,))
+            for reg in regions_data:
+                cur.execute(
+                    "INSERT INTO plant_regions (plant_id, region_name, combo_name) VALUES (%s, %s, %s)",
+                    (plant_id, reg["region_name"], reg.get("combo_name")),
+                )
     conn.commit()
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM plant_classification_import WHERE id = %s", (plant_id,))
-        row = cur.fetchone()
-        cur.execute("SELECT * FROM plant_aliases WHERE plant_id = %s", (plant_id,))
-        aliases = cur.fetchall() or []
-    return plant_row_to_out(row, aliases=aliases)
+    return get_plant(plant_id, conn)
 
 
 @router.delete("/{plant_id}")
@@ -921,3 +969,81 @@ def delete_plant(
     conn.commit()
     _sync_plant_auto_increment(conn)
     return {"ok": True}
+
+
+@router.post("/{id}/ai-enrich")
+def ai_enrich_plant(
+    id: int,
+    conn: pymysql.connections.Connection = Depends(get_db),
+    current_user: PlantAdminUser = Depends(require_admin),
+):
+    import urllib.request
+    import json
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, vernacular_name, scientific_name, morphology_text, medicinal_shape, habitat "
+            "FROM plant_classification_import WHERE id = %s",
+            (id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="未找到该植物")
+
+    name = row.get("vernacular_name") or ""
+    sci_name = row.get("scientific_name") or ""
+    morph = row.get("morphology_text") or ""
+    med = row.get("medicinal_shape") or ""
+    hab = row.get("habitat") or ""
+
+    prompt = f"""你是一个专业的中草药与植物学专家。
+根据以下提供的植物信息：
+- 中文名称: {name}
+- 拉丁名: {sci_name}
+- 形态描述: {morph}
+- 药用性状: {med}
+- 生境: {hab}
+
+请帮我分析该植物的：
+1. 最佳采收月份：请列出最适合采收的月份数字，多个月份用逗号分隔，如 "5,6" 或仅一个数字如 "8"。如果没有明确文献，请根据其开花/结果期或通用药用部位（根、茎、叶、花、果）规律进行推断。
+2. 最佳采收详细说明：请给出一段详细的中文说明，解释为什么选择这些月份（如开花期、植株成熟度、有效成分含量等），并附带采收和炮制建议（如阴干、烘干等），字数在 100-250 字左右。
+3. 适合食疗入药月份：请列出适合作为食疗或药膳入药的月份数字，多个月份用逗号分隔，如 "6,7"。通常与最佳采收月接近或略晚，或为适宜服用调理的季节。
+4. 食疗入药详细说明：请给出一段详细的说明，指出食疗或入药的注意事项、鲜品/干品的使用安全风险（如有无毒性、需如何处理如干燥煎煮）、经典古籍记载（如没有特定古籍，可指出同属药材通用逻辑）及服用建议，字数在 150-300 字左右。
+
+请严格以下方的 JSON 格式返回，不要有任何 Markdown 代码块外的文字，也不要包含任何多余信息：
+{{
+    "harvest_months": "5,6",
+    "harvest_months_desc": "最佳采收说明文本...",
+    "food_therapy_months": "6,7",
+    "food_therapy_months_desc": "食疗入药说明文本..."
+}}"""
+
+    api_key = "sk-ae72311f11fe4636b160dd539a08911f"
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2
+    }
+
+    try:
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            resp_bytes = response.read()
+            resp_data = json.loads(resp_bytes.decode("utf-8"))
+            content_str = resp_data["choices"][0]["message"]["content"]
+            result = json.loads(content_str)
+            return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI 填充服务发生错误: {str(e)}")
