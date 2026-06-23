@@ -220,7 +220,7 @@ export default function PlantsPage() {
   const lastCardClickIdx = useRef<number>(-1);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Plant | null>(null);
-  const [form] = Form.useForm<Plant>();
+  const [form] = Form.useForm<any>();
   const [mediaVersion, setMediaVersion] = useState(0);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [deletingImage, setDeletingImage] = useState(false);
@@ -525,6 +525,12 @@ export default function PlantsPage() {
     form.setFieldsValue({
       ...formValues,
       aliases: formValues.aliases || undefined,
+      harvest_months: formValues.harvest_months 
+        ? formValues.harvest_months.split(",").map(m => m.trim()).filter(Boolean) 
+        : [],
+      food_therapy_months: formValues.food_therapy_months 
+        ? formValues.food_therapy_months.split(",").map(m => m.trim()).filter(Boolean) 
+        : [],
     });
     setEditorOpen(true);
   }
@@ -532,11 +538,16 @@ export default function PlantsPage() {
   async function save() {
     try {
       const v = await form.validateFields();
+      const payload = {
+        ...v,
+        harvest_months: Array.isArray(v.harvest_months) ? v.harvest_months.join(",") : (v.harvest_months || null),
+        food_therapy_months: Array.isArray(v.food_therapy_months) ? v.food_therapy_months.join(",") : (v.food_therapy_months || null),
+      };
       if (editing) {
-        await api.put(`/plants/${editing.id}`, v);
+        await api.put(`/plants/${editing.id}`, payload);
         message.success("已保存");
       } else {
-        await api.post("/plants", v);
+        await api.post("/plants", payload);
         message.success("已新增");
       }
       setEditorOpen(false);
@@ -1480,6 +1491,22 @@ export default function PlantsPage() {
           </Form.Item>
           <Form.Item name="image_url" label="网络图片链接">
             <Input />
+          </Form.Item>
+          <Form.Item name="harvest_months" label="最佳采收月（多选）">
+            <Select
+              mode="multiple"
+              placeholder="选择最佳采收月份"
+              allowClear
+              options={[...Array(12)].map((_, i) => ({ label: `${i + 1}月`, value: String(i + 1) }))}
+            />
+          </Form.Item>
+          <Form.Item name="food_therapy_months" label="适合食疗入药月（多选）">
+            <Select
+              mode="multiple"
+              placeholder="选择适合食疗入药月份"
+              allowClear
+              options={[...Array(12)].map((_, i) => ({ label: `${i + 1}月`, value: String(i + 1) }))}
+            />
           </Form.Item>
 
           <div className="mb-2 mt-4 font-semibold text-on-surface">分类别名配置</div>
