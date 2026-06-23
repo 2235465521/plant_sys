@@ -522,7 +522,10 @@ export default function PlantsPage() {
   function openEdit(p: Plant) {
     setEditing(p);
     const { image_server_paths: _omit, ...formValues } = p;
-    form.setFieldsValue(formValues);
+    form.setFieldsValue({
+      ...formValues,
+      aliases: formValues.aliases || undefined,
+    });
     setEditorOpen(true);
   }
 
