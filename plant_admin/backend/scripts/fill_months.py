@@ -171,6 +171,7 @@ def main():
     parser = argparse.ArgumentParser(description="AI Plant Details Enrichment Script")
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of plants to process")
     parser.add_argument("--offset", type=int, default=None, help="Database offset for query")
+    parser.add_argument("--min-id", type=int, default=None, help="Start processing from this plant ID")
     args = parser.parse_args()
 
     load_env()
@@ -181,9 +182,13 @@ def main():
     sql_query = """
         SELECT id, vernacular_name, scientific_name, morphology_text, medicinal_shape, habitat
         FROM plant_classification_import
-        WHERE harvest_months_desc IS NULL OR harvest_months_desc = ''
-        ORDER BY id ASC
+        WHERE (harvest_months_desc IS NULL OR harvest_months_desc = '')
     """
+    if args.min_id is not None:
+        sql_query += f" AND id >= {args.min_id}"
+        
+    sql_query += " ORDER BY id ASC"
+
     if args.limit is not None:
         sql_query += f" LIMIT {args.limit}"
         if args.offset is not None:
