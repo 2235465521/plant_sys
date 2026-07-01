@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Card,
   Tabs,
@@ -18,7 +18,8 @@ import {
   Spin,
   Empty,
   message,
-  Popconfirm
+  Popconfirm,
+  Pagination
 } from "antd";
 import { api, Plant, PlantRanking, PlantRegion, PlantConfusionGroup, PlantConfusionItem, getToken } from "../api";
 
@@ -33,6 +34,37 @@ function decodeJwtPayload(token: string): { username?: string; role?: string } {
   } catch {
     return {};
   }
+}
+
+function getPlayableImage(plant: Plant | null | undefined): string | undefined {
+  if (!plant) return undefined;
+  if (plant.image_server_paths && Array.isArray(plant.image_server_paths) && plant.image_server_paths.length > 0) {
+    const path = plant.image_server_paths[0];
+    if (path.startsWith("/") || /^https?:\/\//i.test(path)) {
+      return path;
+    }
+  }
+  if (plant.image_url && plant.image_url.trim()) {
+    const url = plant.image_url.trim();
+    if (url.startsWith("/") || /^https?:\/\//i.test(url)) {
+      return url;
+    }
+  }
+  return undefined;
+}
+
+function getSvgFallback(name: string, text = "暂无图片"): string {
+  return `data:image/svg+xml;utf8,` + encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+      <rect width="100%" height="100%" fill="#F1F5F9" />
+      <text x="50%" y="45%" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" fill="#64748B" text-anchor="middle">
+        ${name || "无图"}
+      </text>
+      <text x="50%" y="60%" font-family="system-ui, sans-serif" font-size="12" fill="#94A3B8" text-anchor="middle">
+        ${text}
+      </text>
+    </svg>
+  `);
 }
 
 export default function FeaturesPage() {
@@ -155,19 +187,24 @@ export default function FeaturesPage() {
               </div>
 
               {/* Images if any */}
-              {detailPlant.image_url && (
-                <div className="flex justify-center bg-surface-container-high rounded-xl p-3 border border-outline-variant/20">
+              <div className="flex justify-center bg-surface-container-high rounded-xl p-3 border border-outline-variant/20">
+                {getPlayableImage(detailPlant) ? (
                   <img
-                    src={detailPlant.image_url}
+                    src={getPlayableImage(detailPlant)}
                     alt={detailPlant.vernacular_name || ""}
                     className="max-h-[280px] rounded-lg object-contain shadow-sm"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src =
-                        "https://placehold.co/400x300?text=" + encodeURIComponent(detailPlant.vernacular_name || "无图");
+                      (e.target as HTMLImageElement).src = getSvgFallback(detailPlant.vernacular_name || "", "图片链接失效或防盗链拦截");
                     }}
                   />
-                </div>
-              )}
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <span className="material-symbols-outlined text-[48px] text-on-surface-variant/40 mb-2">image_not_supported</span>
+                    <span className="font-semibold text-on-surface-variant text-sm">{detailPlant.vernacular_name || "该植物"}</span>
+                    <span className="text-xs text-on-surface-variant/60 mt-1">本站服务器暂无该植物图片</span>
+                  </div>
+                )}
+              </div>
 
               {/* Tabs for details */}
               <Tabs
@@ -252,7 +289,7 @@ export default function FeaturesPage() {
                         <div>
                           <h4 className="font-semibold text-primary text-sm flex items-center gap-1 mb-1">
                             <span className="material-symbols-outlined text-[16px]">info</span>
-                            采收及炮制详细说明 (AI 填充)
+                            采收及炮制详细说明
                           </h4>
                           <div className="rounded-xl bg-green-50/50 p-4 border border-green-100 text-on-surface text-sm leading-relaxed whitespace-pre-wrap">
                             {detailPlant.harvest_months_desc || "暂无说明，请在首页编辑该植物，点击一键 AI 智能填充。"}
@@ -284,7 +321,7 @@ export default function FeaturesPage() {
                         <div>
                           <h4 className="font-semibold text-primary text-sm flex items-center gap-1 mb-1">
                             <span className="material-symbols-outlined text-[16px]">security</span>
-                            食疗用药安全及服用建议 (AI 填充)
+                            食疗用药安全及服用建议
                           </h4>
                           <div className="rounded-xl bg-orange-50/50 p-4 border border-orange-100 text-on-surface text-sm leading-relaxed whitespace-pre-wrap">
                             {detailPlant.food_therapy_months_desc || "暂无说明，请在首页编辑该植物，点击一键 AI 智能填充。"}
@@ -313,6 +350,8 @@ function HabitatsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+  const [cardPage, setCardPage] = useState(1);
+  const cardPageSize = 12;
   const [loading, setLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
@@ -374,13 +413,18 @@ function HabitatsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
     ...summary.map(s => s.habitat_type)
   ])).filter(Boolean);
 
+  const paginatedCategories = useMemo(() => {
+    const start = (cardPage - 1) * cardPageSize;
+    return activeCategories.slice(start, start + cardPageSize);
+  }, [activeCategories, cardPage]);
+
   return (
     <div className="space-y-6 pt-2">
       {/* Dynamic Cards */}
       <Spin spinning={summaryLoading}>
         <Row gutter={[16, 16]}>
-          {activeCategories.map((type) => {
-            const sumItem = summary.find(s => s.habitat_type === type);
+          {paginatedCategories.map((type: string) => {
+            const sumItem = summary.find((s: any) => s.habitat_type === type);
             const count = sumItem ? sumItem.count : 0;
             const style = habitatStyles[type] || {
               bg: "from-slate-600 to-slate-800",
@@ -414,6 +458,17 @@ function HabitatsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
             );
           })}
         </Row>
+        {activeCategories.length > cardPageSize && (
+          <div className="flex justify-center mt-4">
+            <Pagination
+              simple
+              current={cardPage}
+              pageSize={cardPageSize}
+              total={activeCategories.length}
+              onChange={(p) => setCardPage(p)}
+            />
+          </div>
+        )}
       </Spin>
 
       {/* Plants list */}
@@ -1030,15 +1085,21 @@ function ConfusionTab({ isAdmin, showPlantDetail }: { isAdmin: boolean; showPlan
                         <div className="border border-outline-variant/30 rounded-2xl p-4 bg-surface-container-lowest h-full flex flex-col space-y-4">
                           {/* Image */}
                           <div className="flex justify-center bg-surface-container rounded-xl p-2 h-[180px]">
-                            <img
-                              src={plant.image_url || ""}
-                              alt={plant.vernacular_name || ""}
-                              className="max-h-full rounded-lg object-contain"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src =
-                                  "https://placehold.co/300x200?text=" + encodeURIComponent(plant.vernacular_name || "无图");
-                              }}
-                            />
+                            {getPlayableImage(plant) ? (
+                              <img
+                                src={getPlayableImage(plant)}
+                                alt={plant.vernacular_name || ""}
+                                className="max-h-full rounded-lg object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = getSvgFallback(plant.vernacular_name || "", "图片加载失败");
+                                }}
+                              />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center text-center p-4">
+                                <span className="material-symbols-outlined text-[36px] text-on-surface-variant/40 mb-1">image_not_supported</span>
+                                <span className="text-xs text-on-surface-variant/60">暂无图片</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Titles */}

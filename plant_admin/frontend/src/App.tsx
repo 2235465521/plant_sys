@@ -152,8 +152,7 @@ function AppShell() {
 
   const q = onPlantsPage ? sp.get("q") ?? "" : "";
   const qMode = onPlantsPage ? sp.get("q_mode") ?? "" : "";
-  const [draft, setDraft] = useState(qMode === "semantic" ? "" : q);
-  const [semanticDraft, setSemanticDraft] = useState(qMode === "semantic" ? q : "");
+  const [draft, setDraft] = useState(q);
   const [taxonItems, setTaxonItems] = useState<TaxonBucketDto[]>([]);
   const [taxonLoading, setTaxonLoading] = useState(false);
   const [taxonSidebarSearch, setTaxonSidebarSearch] = useState("");
@@ -168,14 +167,8 @@ function AppShell() {
   }, [activeDisplayLevel]);
 
   useEffect(() => {
-    if (qMode === "semantic") {
-      setSemanticDraft(q);
-      setDraft("");
-    } else {
-      setDraft(q);
-      setSemanticDraft("");
-    }
-  }, [q, qMode]);
+    setDraft(q);
+  }, [q]);
 
   useEffect(() => {
     const onFlash = () => setSidebarFlash(true);
@@ -310,8 +303,8 @@ function AppShell() {
 
   function submitSemanticSearch() {
     const next = new URLSearchParams(onPlantsPage ? loc.search : "");
-    if (semanticDraft.trim()) {
-      next.set("q", semanticDraft.trim());
+    if (draft.trim()) {
+      next.set("q", draft.trim());
       next.set("q_mode", "semantic");
     } else {
       next.delete("q");
@@ -505,96 +498,16 @@ function AppShell() {
 
       {/* Top bar */}
       <header className="fixed left-0 top-0 z-30 ml-0 flex h-16 w-full items-center justify-between border-b border-outline-variant bg-surface-container-lowest pl-sidebar pr-margin">
-        <div className="flex items-center gap-8 pl-gutter">
-          <h1 className="font-h3 text-h3 font-semibold text-primary whitespace-nowrap">中国植物库</h1>
-          <div className="flex items-center gap-3">
-            {/* 普通文本搜索 */}
-            <div className="flex w-[210px] items-center gap-1.5">
-              <div className="relative min-w-0 flex-1">
-                <span className="material-symbols-outlined pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
-                  search
-                </span>
-                <input
-                  className="w-full rounded-lg border border-outline-variant bg-surface-container-low py-1.5 pl-8 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-on-surface-variant/70 focus:border-primary focus:ring-0"
-                  placeholder="搜索名称、科属或ID"
-                  type="text"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-                />
-                {draft && (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
-                    onClick={() => {
-                      setDraft("");
-                      const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
-                      next.delete("q");
-                      next.delete("q_mode");
-                      nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
-                    }}
-                    title="清空搜索"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">close</span>
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={submitSearch}
-                className="flex-shrink-0 rounded-lg border border-primary bg-primary px-2.5 py-1.5 font-label-sm text-[12px] text-on-primary transition-colors hover:bg-primary-container"
-              >
-                搜索
-              </button>
-            </div>
-
-            {/* AI 语义搜索 */}
-            <div className="flex w-[370px] items-center gap-1.5">
-              <div className="relative min-w-0 flex-1">
-                <input
-                  className="w-full rounded-lg border border-primary/30 bg-primary/5 py-1.5 pl-3 pr-7 font-body-md text-xs text-on-background outline-none transition-all placeholder:text-primary/50 focus:border-primary focus:ring-0"
-                  placeholder="AI 语义搜索（如：关于夏天的植物）"
-                  type="text"
-                  value={semanticDraft}
-                  onChange={(e) => setSemanticDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && submitSemanticSearch()}
-                />
-                {semanticDraft && (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
-                    onClick={() => {
-                      setSemanticDraft("");
-                      const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
-                      next.delete("q");
-                      next.delete("q_mode");
-                      nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
-                    }}
-                    title="清空语义搜索"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">close</span>
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={submitSemanticSearch}
-                className="flex-shrink-0 rounded-lg border border-primary bg-primary px-2.5 py-1.5 font-label-sm text-[12px] text-on-primary transition-colors hover:bg-primary-container flex items-center gap-0.5"
-              >
-                <span className="material-symbols-outlined text-[14px]">bolt</span>
-                AI搜索
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-6">
-          <nav className="mr-6 hidden items-center gap-6 md:flex">
+        {/* Left Section: Logo + Navigation Menus */}
+        <div className="flex items-center gap-6 pl-gutter">
+          <h1 className="font-h3 text-h3 font-semibold text-primary whitespace-nowrap mr-2">中国植物库</h1>
+          <nav className="hidden items-center gap-5 lg:flex">
             <Link
               to="/plants"
               className={`border-b-2 py-5 font-label-sm text-label-sm ${
                 onPlantsPage
                   ? "border-primary font-semibold text-primary"
-                  : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
+                  : "border-transparent text-on-surface-variant hover:text-primary px-1"
               }`}
             >
               首页
@@ -604,7 +517,7 @@ function AppShell() {
               className={`border-b-2 py-5 font-label-sm text-label-sm ${
                 loc.pathname.startsWith("/features")
                   ? "border-primary font-semibold text-primary"
-                  : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
+                  : "border-transparent text-on-surface-variant hover:text-primary px-1"
               }`}
             >
               特色专区
@@ -615,7 +528,7 @@ function AppShell() {
                 className={`border-b-2 py-5 font-label-sm text-label-sm ${
                   loc.pathname.startsWith("/export-logs")
                     ? "border-primary font-semibold text-primary"
-                    : "border-transparent text-on-surface-variant hover:bg-secondary-container/10 px-2"
+                    : "border-transparent text-on-surface-variant hover:text-primary px-1"
                 }`}
               >
                 导出审计
@@ -625,25 +538,77 @@ function AppShell() {
               href="https://www.plantplus.cn/"
               target="_blank"
               rel="noreferrer"
-              className="py-5 px-2 font-label-sm text-label-sm text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+              className="py-5 px-1 font-label-sm text-label-sm text-on-surface-variant transition-colors hover:text-primary"
             >
               中国植物志
             </a>
           </nav>
+        </div>
+
+        {/* Right Section: Combined Search Bar + User Profile Options */}
+        <div className="flex items-center gap-4">
+          {/* 合并后的 AI/普通 搜索框 */}
+          <div className="hidden sm:flex w-[320px] md:w-[380px] lg:w-[450px] items-center gap-1 rounded-lg border border-outline-variant bg-surface-container-low p-1 transition-all focus-within:border-primary">
+            <div className="relative min-w-0 flex-1 flex items-center">
+              <span className="material-symbols-outlined pointer-events-none ml-1.5 text-[16px] text-on-surface-variant">
+                search
+              </span>
+              <input
+                className="w-full bg-transparent py-0.5 pl-1.5 pr-6 font-body-md text-xs text-on-background outline-none placeholder:text-on-surface-variant/70"
+                placeholder="搜索名称、科属，或输入句子AI搜索..."
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitSearch()}
+              />
+              {draft && (
+                <button
+                  type="button"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                  onClick={() => {
+                    setDraft("");
+                    const next = new URLSearchParams(loc.pathname === "/plants" ? loc.search : "");
+                    next.delete("q");
+                    next.delete("q_mode");
+                    nav({ pathname: "/plants", search: next.toString() ? `?${next.toString()}` : "" });
+                  }}
+                  title="清空搜索"
+                >
+                  <span className="material-symbols-outlined text-[12px]">close</span>
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={submitSearch}
+              className="flex-shrink-0 rounded bg-surface-container-high px-2 py-1 font-label-sm text-[11px] text-on-surface transition-colors hover:bg-surface-container-highest"
+            >
+              搜索
+            </button>
+            <button
+              type="button"
+              onClick={submitSemanticSearch}
+              className="flex-shrink-0 rounded bg-primary px-2 py-1 font-label-sm text-[11px] text-on-primary transition-colors hover:bg-primary-container flex items-center gap-0.5"
+            >
+              <span className="material-symbols-outlined text-[12px] align-middle">bolt</span>
+              AI搜索
+            </button>
+          </div>
+
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-full border border-outline-variant bg-surface-container-high px-3 py-1 font-label-sm text-label-sm text-on-surface-variant sm:inline">
+            <span className="hidden rounded-full border border-outline-variant bg-surface-container-high px-3 py-1 font-label-sm text-[11px] text-on-surface-variant xl:inline">
               {isAdmin ? "管理员" : "用户"} · {displayName}
             </span>
             <button
               type="button"
-              className="material-symbols-outlined rounded-full p-2 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+              className="material-symbols-outlined rounded-full p-1.5 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
               aria-label="通知"
             >
               notifications
             </button>
             <button
               type="button"
-              className="material-symbols-outlined rounded-full p-2 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+              className="material-symbols-outlined rounded-full p-1.5 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
               aria-label="帮助"
             >
               help
@@ -652,14 +617,14 @@ function AppShell() {
               <button
                 type="button"
                 onClick={() => setUserModalOpen(true)}
-                className="material-symbols-outlined rounded-full p-2 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+                className="material-symbols-outlined rounded-full p-1.5 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
                 aria-label="用户管理"
                 title="用户管理"
               >
                 manage_accounts
               </button>
             )}
-            <div className="ml-2 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-primary-container text-xs font-semibold text-on-primary">
+            <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-primary-container text-xs font-semibold text-on-primary">
               {displayName.slice(0, 1).toUpperCase()}
             </div>
             <button
@@ -668,7 +633,7 @@ function AppShell() {
                 setToken(null);
                 window.location.href = "/login";
               }}
-              className="ml-2 font-label-sm text-label-sm text-on-surface-variant hover:text-primary"
+              className="ml-1 font-label-sm text-[11px] text-on-surface-variant hover:text-primary"
             >
               退出
             </button>
