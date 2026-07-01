@@ -519,6 +519,8 @@ function RankingsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [plants, setPlants] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   // Friendly names for ranking types
   const typeMap: Record<string, { label: string; icon: string; desc: string }> = {
@@ -562,10 +564,16 @@ function RankingsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
   useEffect(() => {
     if (selectedType) {
       loadRankings(selectedType);
+      setPage(1);
     }
   }, [selectedType]);
 
   const activeMeta = selectedType ? (typeMap[selectedType] || { label: selectedType, icon: "award", desc: "特色分类榜单" }) : null;
+
+  const paginatedPlants = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return plants.slice(start, start + pageSize);
+  }, [plants, page]);
 
   return (
     <div className="pt-2">
@@ -626,54 +634,68 @@ function RankingsTab({ showPlantDetail }: { showPlantDetail: (id: number) => voi
                 {plants.length === 0 ? (
                   <Empty description="该榜单暂无植物数据，请编辑植物详情添加排行榜分类" />
                 ) : (
-                  <div className="space-y-4">
-                    {plants.map((item, idx) => {
-                      const rank = idx + 1;
-                      // Rank styling for Top 3
-                      const badgeBg = rank === 1 ? "bg-amber-400 text-white font-bold" :
-                                      rank === 2 ? "bg-slate-300 text-white font-bold" :
-                                      rank === 3 ? "bg-amber-600 text-white font-bold" :
-                                      "bg-surface-container-high text-on-surface-variant";
+                  <>
+                    <div className="space-y-4">
+                      {paginatedPlants.map((item, idx) => {
+                        const rank = (page - 1) * pageSize + idx + 1;
+                        // Rank styling for Top 3
+                        const badgeBg = rank === 1 ? "bg-amber-400 text-white font-bold" :
+                                        rank === 2 ? "bg-slate-300 text-white font-bold" :
+                                        rank === 3 ? "bg-amber-600 text-white font-bold" :
+                                        "bg-surface-container-high text-on-surface-variant";
 
-                      return (
-                        <div
-                          key={item.plant.id}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-outline-variant/20 bg-surface-container-lowest hover:shadow-md transition-shadow"
-                        >
-                          <div className="flex items-center gap-4 flex-1 min-w-0">
-                            {/* Rank circle */}
-                            <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${badgeBg}`}>
-                              {rank}
-                            </div>
-                            
-                            {/* Plant details */}
-                            <div className="min-w-0">
-                              <div className="flex items-baseline gap-2 flex-wrap">
-                                <a onClick={() => showPlantDetail(item.plant.id)} className="font-semibold text-primary text-base hover:underline">
-                                  {item.plant.vernacular_name || "未知"}
-                                </a>
-                                <span className="text-xs italic text-on-surface-variant truncate max-w-[200px]">
-                                  {item.plant.scientific_name}
-                                </span>
-                                <Tag color="blue" className="rounded-md scale-90">{item.plant.family} · {item.plant.genus}</Tag>
+                        return (
+                          <div
+                            key={item.plant.id}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-outline-variant/20 bg-surface-container-lowest hover:shadow-md transition-shadow"
+                          >
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                              {/* Rank circle */}
+                              <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${badgeBg}`}>
+                                {rank}
                               </div>
-                              <div className="text-xs text-on-surface-variant mt-1 leading-relaxed line-clamp-2">
-                                {item.description || "暂无本排名理由详细描述"}
+                              
+                              {/* Plant details */}
+                              <div className="min-w-0">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  <a onClick={() => showPlantDetail(item.plant.id)} className="font-semibold text-primary text-base hover:underline">
+                                    {item.plant.vernacular_name || "未知"}
+                                  </a>
+                                  <span className="text-xs italic text-on-surface-variant truncate max-w-[200px]">
+                                    {item.plant.scientific_name}
+                                  </span>
+                                  <Tag color="blue" className="rounded-md scale-90">{item.plant.family} · {item.plant.genus}</Tag>
+                                </div>
+                                <div className="text-xs text-on-surface-variant mt-1 leading-relaxed line-clamp-2">
+                                  {item.description || "暂无本排名理由详细描述"}
+                                </div>
                               </div>
                             </div>
+
+                            {/* Ranking value */}
+                            {item.ranking_value && (
+                              <div className="mt-2 sm:mt-0 ml-12 sm:ml-4 text-right flex-shrink-0">
+                                <span className="text-xs text-on-surface-variant block">指标数值</span>
+                                <span className="font-display-md text-lg font-bold text-secondary">{item.ranking_value}</span>
+                              </div>
+                            )}
                           </div>
-
-                          {/* Ranking value */}
-                          {item.ranking_value && (
-                            <div className="mt-2 sm:mt-0 ml-12 sm:ml-4 text-right flex-shrink-0">
-                              <span className="text-xs text-on-surface-variant block">指标数值</span>
-                              <span className="font-display-md text-lg font-bold text-secondary">{item.ranking_value}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                    {plants.length > pageSize && (
+                      <div className="flex justify-center mt-6">
+                        <Pagination
+                          current={page}
+                          pageSize={pageSize}
+                          total={plants.length}
+                          onChange={(p) => setPage(p)}
+                          showSizeChanger={false}
+                          size="small"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </Spin>
             </Card>
