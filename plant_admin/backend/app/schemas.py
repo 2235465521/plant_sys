@@ -72,6 +72,7 @@ class PlantBase(BaseModel):
     distribution_china: Optional[str] = None
     distribution_abroad: Optional[str] = None
     habitat: Optional[str] = None
+    medicinal_part: Optional[str] = None
     is_medicinal_food_homologous: Optional[str] = None
     image_url: Optional[str] = None
     image_server_paths: Optional[list[str]] = None

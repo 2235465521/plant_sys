@@ -209,7 +209,7 @@ export default function PlantsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(36);
   const [selected, setSelected] = useState<Plant | null>(null);
-  const [detailTab, setDetailTab] = useState<"basic" | "morph" | "medicinal" | "harvest" | "food_therapy">("basic");
+  const [detailTab, setDetailTab] = useState<"basic" | "morph" | "medicinal" | "harvest" | "food_therapy" | "habitat" | "medicinal_part">("basic");
   const [imageTab, setImageTab] = useState<"web" | "upload">("web");
   const [showTable, setShowTable] = useState(false);
   const [tableSelectedKeys, setTableSelectedKeys] = useState<Key[]>([]);
@@ -583,7 +583,9 @@ export default function PlantsPage() {
         habitats,
         rankings,
         regions,
-        aliases
+        aliases,
+        habitat,
+        medicinal_part
       } = res.data;
       form.setFieldsValue({
         harvest_months: harvest_months 
@@ -599,6 +601,8 @@ export default function PlantsPage() {
         rankings: rankings || [],
         regions: regions || [],
         aliases: aliases || [],
+        habitat: habitat || "",
+        medicinal_part: medicinal_part || "",
       });
       message.success("AI 自动提取完成！已填入表单，请点击确定保存");
     } catch (e: unknown) {
@@ -1217,13 +1221,35 @@ export default function PlantsPage() {
               <button
                 type="button"
                 onClick={() => setDetailTab("food_therapy")}
-                className={`py-4 font-label-sm text-label-sm ${
+                className={`mr-8 py-4 font-label-sm text-label-sm ${
                   detailTab === "food_therapy"
                     ? "border-b-2 border-primary font-semibold text-primary"
                     : "text-on-surface-variant hover:text-primary"
                 }`}
               >
                 食疗入药
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab("habitat")}
+                className={`mr-8 py-4 font-label-sm text-label-sm ${
+                  detailTab === "habitat"
+                    ? "border-b-2 border-primary font-semibold text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`}
+              >
+                生长环境
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab("medicinal_part")}
+                className={`py-4 font-label-sm text-label-sm ${
+                  detailTab === "medicinal_part"
+                    ? "border-b-2 border-primary font-semibold text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`}
+              >
+                入药部位
               </button>
             </div>
             <div className="p-6">
@@ -1308,6 +1334,14 @@ export default function PlantsPage() {
                   ) : detailTab === "food_therapy" ? (
                     <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
                       {selected.food_therapy_months_desc?.trim() || "暂无描述"}
+                    </div>
+                  ) : detailTab === "habitat" ? (
+                    <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
+                      {selected.habitat?.trim() || "暂无生长环境描述"}
+                    </div>
+                  ) : detailTab === "medicinal_part" ? (
+                    <div className="whitespace-pre-wrap text-on-surface leading-relaxed">
+                      {selected.medicinal_part?.trim() || "暂无入药部位记载"}
                     </div>
                   ) : (
                     <div className="flex flex-col gap-4 text-on-surface">
@@ -1658,8 +1692,11 @@ export default function PlantsPage() {
           <Form.Item name="distribution_abroad" label="国外分布">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="habitat" label="生境">
+          <Form.Item name="habitat" label="生长环境">
             <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="medicinal_part" label="入药部位">
+            <Input placeholder="如：全草、根、叶、果实" />
           </Form.Item>
           <Form.Item name="image_url" label="网络图片链接">
             <Input />
