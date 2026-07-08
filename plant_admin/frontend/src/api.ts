@@ -80,6 +80,7 @@ export interface Plant {
   distribution_china: string | null;
   distribution_abroad: string | null;
   habitat: string | null;
+  medicinal_part?: string | null;
   is_medicinal_food_homologous: string | null;
   image_url: string | null;
   /** 本站多图 URL 路径（与库中 JSON 数组一致） */
