@@ -491,16 +491,16 @@ def taxonomy_distinct(
     col = field
     conditions: list[str] = [f"({col} IS NOT NULL AND TRIM({col}) <> '')"]
     args: list[str] = []
-    if division:
+    if division and isinstance(division, str) and division.strip():
         conditions.append("TRIM(division) = %s")
         args.append(division.strip())
-    if subclass:
+    if subclass and isinstance(subclass, str) and subclass.strip():
         conditions.append("TRIM(subclass) = %s")
         args.append(subclass.strip())
-    if torder:
+    if torder and isinstance(torder, str) and torder.strip():
         conditions.append("TRIM(taxonomic_order) = %s")
         args.append(torder.strip())
-    if family:
+    if family and isinstance(family, str) and family.strip():
         conditions.append("TRIM(family) = %s")
         args.append(family.strip())
     where = " AND ".join(conditions)
