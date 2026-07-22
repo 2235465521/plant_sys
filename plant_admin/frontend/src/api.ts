@@ -136,5 +136,19 @@ export interface ExportLog {
   created_at: string;
 }
 
+export interface GenerateVideoRes {
+  success: boolean;
+  message: string;
+  plant_id: number;
+  vernacular_name: string;
+  video_url: string;
+  file_size_bytes: number;
+}
+
+export async function generatePlantVideo(plantId: number): Promise<GenerateVideoRes> {
+  const res = await api.post<GenerateVideoRes>(`/video-automation/generate?plant_id=${plantId}`);
+  return res.data;
+}
+
 /** 主内容区「筛选」按钮触发，左侧分类栏短暂高亮 */
 export const PLANT_SIDEBAR_FLASH_EVENT = "plant-focus-filter-sidebar";

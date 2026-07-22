@@ -8,14 +8,15 @@ import {
   FileExcelOutlined,
   FileTextOutlined,
   TableOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
-import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select, Tag } from "antd";
+import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select, Tag, Spin } from "antd";
 import type { MenuProps } from "antd";
 import type { Key } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext, useSearchParams, Link } from "react-router-dom";
-import { api, Plant, getToken, serializeTaxonArrayParams } from "../api";
+import { api, Plant, getToken, serializeTaxonArrayParams, generatePlantVideo, GenerateVideoRes } from "../api";
 
 interface ListRes {
   items: Plant[];
@@ -230,6 +231,30 @@ export default function PlantsPage() {
   const [jpegDownloadMode, setJpegDownloadMode] = useState<"idle" | "current" | "batch">("idle");
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const tableExportSectionRef = useRef<HTMLElement>(null);
+
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [videoResult, setVideoResult] = useState<GenerateVideoRes | null>(null);
+  const [videoPlantName, setVideoPlantName] = useState<string>("");
+
+  const handleGenerateVideo = async (plant: Plant) => {
+    const name = pickSpeciesLabel(plant);
+    setVideoPlantName(name);
+    setVideoLoading(true);
+    setVideoResult(null);
+    setVideoModalOpen(true);
+
+    try {
+      const res = await generatePlantVideo(plant.id);
+      setVideoResult(res);
+      message.success(`「${name}」短视频生成成功！`);
+    } catch (err: any) {
+      console.error(err);
+      message.error(err?.response?.data?.detail || "视频生成失败，请稍后重试");
+    } finally {
+      setVideoLoading(false);
+    }
+  };
 
   const role = useMemo(() => {
     const t = getToken();
@@ -946,6 +971,16 @@ export default function PlantsPage() {
                     </Button>
                   </Dropdown>
                 </Tooltip>
+                <Tooltip title={selected ? `为当前选中的标本「${pickSpeciesLabel(selected)}」自动生成20秒古风短视频` : "请先在列表中选择一个物种标本"}>
+                  <Button
+                    icon={<VideoCameraOutlined />}
+                    disabled={!selected || loading}
+                    onClick={() => selected && handleGenerateVideo(selected)}
+                    className="font-label-sm bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white border-none shadow-sm"
+                  >
+                    生成视频
+                  </Button>
+                </Tooltip>
                 <Tooltip title="切换为表格视图，支持列排序与批量勾选导出">
                   <button
                     type="button"
@@ -1148,6 +1183,25 @@ export default function PlantsPage() {
                   { title: "拉丁名", dataIndex: "scientific_name", ellipsis: true },
                   { title: "属", dataIndex: "genus", width: 80 },
                   { title: "科", dataIndex: "family", width: 80 },
+                  {
+                    title: "短视频",
+                    key: "video_action",
+                    width: 100,
+                    render: (_: unknown, p: Plant) => (
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<VideoCameraOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGenerateVideo(p);
+                        }}
+                        className="text-amber-600 hover:text-amber-700 font-medium"
+                      >
+                        生成
+                      </Button>
+                    ),
+                  },
                   ...(isAdmin
                     ? [
                         {
@@ -1913,6 +1967,75 @@ export default function PlantsPage() {
         <div className="max-h-[60vh] overflow-y-auto rounded bg-surface-container p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-on-surface">
           {previewContent}
         </div>
+      </Modal>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2 text-lg font-bold text-amber-900">
+            <VideoCameraOutlined className="text-amber-600 text-xl" />
+            <span>「{videoPlantName}」古风短视频</span>
+          </div>
+        }
+        open={videoModalOpen}
+        onCancel={() => setVideoModalOpen(false)}
+        width={480}
+        centered
+        footer={null}
+        destroyOnHidden
+      >
+        {videoLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-4 text-center">
+            <Spin size="large" />
+            <div className="flex flex-col gap-1.5">
+              <p className="font-semibold text-base text-amber-900">正在生成 20 秒古风短视频...</p>
+              <p className="text-xs text-stone-500">自动检测并抓取补齐图片 · 渲染宣纸古风画卷 · 压制 MP4</p>
+            </div>
+          </div>
+        ) : videoResult && videoResult.success ? (
+          <div className="flex flex-col items-center gap-4 pt-2 pb-2">
+            <div className="w-full relative aspect-[9/16] bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-amber-900/20 max-h-[460px]">
+              <video
+                src={videoResult.video_url}
+                controls
+                autoPlay
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div className="w-full flex items-center justify-between text-xs text-stone-500 px-1">
+              <span>分辨率：1080 × 1920 (竖屏 9:16)</span>
+              <span>大小：{(videoResult.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
+            </div>
+            <div className="w-full flex gap-3 mt-1">
+              <a
+                href={videoResult.video_url}
+                download={`${videoResult.vernacular_name || 'plant'}_20s.mp4`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1"
+              >
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  block
+                  className="bg-amber-700 hover:bg-amber-800 border-none h-10 font-medium"
+                >
+                  下载 MP4 视频
+                </Button>
+              </a>
+              <Button
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.origin + videoResult.video_url);
+                  message.success("视频链接已成功复制到剪贴板！");
+                }}
+                className="h-10 border-amber-700/40 text-amber-800 hover:text-amber-900"
+              >
+                复制外链
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="py-8 text-center text-stone-500">生成发生异常，请稍后重试。</div>
+        )}
       </Modal>
     </>
   );

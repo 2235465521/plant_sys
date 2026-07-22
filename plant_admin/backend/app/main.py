@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.routers import auth, export_logs, features, plants
+from app import video_automation
 
 settings = get_settings()
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +33,8 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(plants.router, prefix="/api")
 app.include_router(export_logs.router, prefix="/api")
 app.include_router(features.router, prefix="/api")
+app.include_router(video_automation.router, prefix="/api")
+
 
 
 @app.get("/api/health")

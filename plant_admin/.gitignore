@@ -1,0 +1,13 @@
+# Virtual environment & Python cache
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node modules & build outputs
+node_modules/
+frontend/node_modules/
+
+# Generated mp4 videos and temporary cache
+*.mp4
+backend/data/plant_images/videos/
+backend/app/video_automation/*.mp4
