@@ -393,8 +393,8 @@ def plants_export_xlsx_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue()
 
 
-def _norm_str_list(raw: Optional[list[str]]) -> list[str]:
-    if not raw:
+def _norm_str_list(raw: Any) -> list[str]:
+    if not raw or not isinstance(raw, (list, tuple, set)):
         return []
     out: list[str] = []
     for x in raw:
@@ -414,18 +414,18 @@ def _in_clause(col: str, values: list[str]) -> tuple[Optional[str], list]:
 
 
 def _build_where(
-    q: Optional[str],
+    q: Any,
     division: list[str],
     subclass: list[str],
     taxonomic_order: list[str],
     family: list[str],
     genus: list[str],
-    harvest_month: Optional[int] = None,
-    food_therapy_month: Optional[int] = None,
+    harvest_month: Any = None,
+    food_therapy_month: Any = None,
 ) -> tuple[str, list]:
     conds: list[str] = []
     params: list = []
-    if q:
+    if q and isinstance(q, str) and q.strip():
         kw = f"%{q.strip()}%"
         conds.append(
             "(vernacular_name LIKE %s OR scientific_name LIKE %s)"
@@ -456,12 +456,20 @@ def _build_where(
         if sql:
             conds.append(sql)
             params.extend(pr)
-    if harvest_month is not None:
-        conds.append("FIND_IN_SET(%s, harvest_months) > 0")
-        params.append(str(harvest_month))
-    if food_therapy_month is not None:
-        conds.append("FIND_IN_SET(%s, food_therapy_months) > 0")
-        params.append(str(food_therapy_month))
+    if harvest_month is not None and not hasattr(harvest_month, "default"):
+        try:
+            hm = int(harvest_month)
+            conds.append("FIND_IN_SET(%s, harvest_months) > 0")
+            params.append(str(hm))
+        except (ValueError, TypeError):
+            pass
+    if food_therapy_month is not None and not hasattr(food_therapy_month, "default"):
+        try:
+            ftm = int(food_therapy_month)
+            conds.append("FIND_IN_SET(%s, food_therapy_months) > 0")
+            params.append(str(ftm))
+        except (ValueError, TypeError):
+            pass
     if not conds:
         return "1 = 1", []
     return " AND ".join(conds), params
