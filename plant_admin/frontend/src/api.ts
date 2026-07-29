@@ -145,8 +145,16 @@ export interface GenerateVideoRes {
   file_size_bytes: number;
 }
 
-export async function generatePlantVideo(plantId: number): Promise<GenerateVideoRes> {
-  const res = await api.post<GenerateVideoRes>(`/video-automation/generate?plant_id=${plantId}`);
+export interface VideoStyleConfig {
+  transition_style: string | string[];
+  text_effect: string;
+  sticker_effect: string;
+  voice_over: string;
+  bgm_type: string;
+}
+
+export async function generatePlantVideo(plantId: number, style?: VideoStyleConfig): Promise<GenerateVideoRes> {
+  const res = await api.post<GenerateVideoRes>(`/video-automation/generate?plant_id=${plantId}`, style);
   return res.data;
 }
 

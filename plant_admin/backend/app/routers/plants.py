@@ -1,4 +1,5 @@
 import json
+import os
 import secrets
 import urllib.error
 from io import BytesIO
@@ -1157,7 +1158,7 @@ def ai_enrich_plant(
     ]
 }}"""
 
-    api_key = "sk-2a32fdc69e89434eafe99a88999380a2"
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
     payload = {
         "model": "deepseek-v4-flash",
         "messages": [

@@ -11,7 +11,7 @@ import {
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
-import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, message, Select, Tag, Spin } from "antd";
+import { Button, Checkbox, Dropdown, Form, Input, Modal, Pagination, Switch, Table, Tooltip, Select, Tag, Spin, App as AntdApp } from "antd";
 import type { MenuProps } from "antd";
 import type { Key } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -145,6 +145,7 @@ function jpegDownloadThrottle(): Promise<void> {
 }
 
 export default function PlantsPage() {
+  const { message } = AntdApp.useApp();
   const { taxonLevel } = useOutletContext<OutletCtx>();
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get("q") ?? "";
@@ -237,15 +238,32 @@ export default function PlantsPage() {
   const [videoResult, setVideoResult] = useState<GenerateVideoRes | null>(null);
   const [videoPlantName, setVideoPlantName] = useState<string>("");
 
-  const handleGenerateVideo = async (plant: Plant) => {
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configPlant, setConfigPlant] = useState<Plant | null>(null);
+  const [videoConfig, setVideoConfig] = useState<any>({
+    transition_style: ["book_flip"],
+    text_effect: "fade_in",
+    sticker_effect: "none",
+    voice_over: "none",
+    bgm_type: "default"
+  });
+
+  const openVideoConfig = (plant: Plant) => {
+    setConfigPlant(plant);
+    setConfigModalOpen(true);
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!configPlant) return;
+    const plant = configPlant;
+    
     const name = pickSpeciesLabel(plant);
     setVideoPlantName(name);
     setVideoLoading(true);
     setVideoResult(null);
-    setVideoModalOpen(true);
 
     try {
-      const res = await generatePlantVideo(plant.id);
+      const res = await generatePlantVideo(plant.id, videoConfig);
       setVideoResult(res);
       message.success(`「${name}」短视频生成成功！`);
     } catch (err: any) {
@@ -253,6 +271,25 @@ export default function PlantsPage() {
       message.error(err?.response?.data?.detail || "视频生成失败，请稍后重试");
     } finally {
       setVideoLoading(false);
+    }
+  };
+
+  const handleDownloadVideo = async () => {
+    if (!videoResult?.video_url) return;
+    try {
+      const response = await fetch(videoResult.video_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = videoResult.video_url.split('/').pop() || `video_${videoPlantName}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      message.error("下载失败");
     }
   };
 
@@ -975,7 +1012,7 @@ export default function PlantsPage() {
                   <Button
                     icon={<VideoCameraOutlined />}
                     disabled={!selected || loading}
-                    onClick={() => selected && handleGenerateVideo(selected)}
+                    onClick={() => selected && openVideoConfig(selected)}
                     className="font-label-sm bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white border-none shadow-sm"
                   >
                     生成视频
@@ -1194,7 +1231,7 @@ export default function PlantsPage() {
                         icon={<VideoCameraOutlined />}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleGenerateVideo(p);
+                          openVideoConfig(p);
                         }}
                         className="text-amber-600 hover:text-amber-700 font-medium"
                       >
@@ -1661,6 +1698,14 @@ export default function PlantsPage() {
                       >
                         fullscreen
                       </button>
+                      <button
+                        type="button"
+                        className="flex items-center justify-center border border-amber-600 bg-amber-50 px-3 py-2 font-label-sm text-label-sm text-amber-700 transition-colors hover:bg-amber-100 rounded"
+                        onClick={() => openVideoConfig(selected)}
+                      >
+                        <VideoCameraOutlined className="mr-1" />
+                        生成视频
+                      </button>
                     </>
                   )}
                   {isAdmin && selected && getToken() && playableRawPaths[galleryIdx] && (
@@ -1971,71 +2016,314 @@ export default function PlantsPage() {
 
       <Modal
         title={
-          <div className="flex items-center gap-2 text-lg font-bold text-amber-900">
-            <VideoCameraOutlined className="text-amber-600 text-xl" />
-            <span>「{videoPlantName}」古风短视频</span>
+          <div className="flex items-center gap-2 text-lg font-bold text-gray-100">
+            <VideoCameraOutlined className="text-[#e2b062] text-xl" />
+            <span>影视创作台：{configPlant ? pickSpeciesLabel(configPlant) : ""}</span>
           </div>
         }
-        open={videoModalOpen}
-        onCancel={() => setVideoModalOpen(false)}
-        width={480}
-        centered
+        open={configModalOpen}
+        onCancel={() => {
+          setConfigModalOpen(false);
+          if (!videoLoading) setVideoResult(null);
+        }}
         footer={null}
+        width={960}
+        centered
         destroyOnHidden
+        rootClassName="ios-glass-modal"
+        styles={{
+          body: { color: "#fff" }
+        }}
       >
-        {videoLoading ? (
-          <div className="py-12 flex flex-col items-center justify-center gap-4 text-center">
-            <Spin size="large" />
-            <div className="flex flex-col gap-1.5">
-              <p className="font-semibold text-base text-amber-900">正在生成 20 秒古风短视频...</p>
-              <p className="text-xs text-stone-500">自动检测并抓取补齐图片 · 渲染宣纸古风画卷 · 压制 MP4</p>
-            </div>
+        <style>{`
+          .dark-studio-form .ant-select { width: 100% !important; }
+          .dark-studio-form .ant-form-item-label > label { color: #f3f4f6 !important; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+          .dark-studio-form .ant-select-selector { background-color: rgba(255, 255, 255, 0.08) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; backdrop-filter: blur(16px) !important; -webkit-backdrop-filter: blur(16px) !important; color: #f3f4f6 !important; border-radius: 12px !important; box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1) !important; }
+          .dark-studio-form .ant-select-selection-item { color: #fff !important; }
+          .dark-studio-form .ant-select-multiple .ant-select-selection-item { background: rgba(255, 255, 255, 0.15) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 8px !important; margin-top: 2px !important; margin-bottom: 2px !important; padding: 0 8px !important; }
+          .dark-studio-form .ant-select-selection-item-remove { color: rgba(255,255,255,0.7) !important; }
+          .dark-studio-form .ant-select-selection-item-remove:hover { color: #fff !important; }
+          .dark-studio-form .ant-select-arrow { color: rgba(255,255,255,0.6) !important; }
+          .dark-studio-form .ant-select-focused .ant-select-selector { border-color: #e2b062 !important; box-shadow: 0 0 0 2px rgba(226, 176, 98, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.1) !important; }
+          
+          .ios-glass-modal .ant-modal-content {
+            background-color: rgba(30, 30, 32, 0.6) !important;
+            backdrop-filter: blur(40px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 28px !important;
+            box-shadow: 0 32px 64px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.15) !important;
+          }
+          .ios-glass-modal .ant-modal-header {
+            background: transparent !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+          }
+          
+          .ant-select-dropdown.ios-glass-dropdown {
+            background-color: rgba(40, 40, 44, 0.65) !important;
+            backdrop-filter: blur(40px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+            padding: 8px !important;
+          }
+          .ios-glass-dropdown .ant-select-item {
+            color: rgba(255, 255, 255, 0.85) !important;
+            border-radius: 10px !important;
+            margin: 2px 0 !important;
+            transition: all 0.2s ease !important;
+          }
+          .ios-glass-dropdown .ant-select-item-option-active,
+          .ios-glass-dropdown .ant-select-item-option-selected {
+            background-color: rgba(255, 255, 255, 0.2) !important;
+            color: #fff !important;
+          }
+          @keyframes pageFlip { 
+            0% { transform: perspective(800px) rotateY(-90deg); opacity: 0; } 
+            100% { transform: perspective(800px) rotateY(0deg); opacity: 1; } 
+          }
+          @keyframes bookFlip { 
+            0% { transform: perspective(800px) rotate3d(-1, 1, 0, 0deg); transform-origin: bottom right; opacity: 1; } 
+            50% { opacity: 1; }
+            100% { transform: perspective(800px) rotate3d(-1, 1, 0, -180deg); transform-origin: bottom right; opacity: 0; } 
+          }
+          @keyframes verticalFlip { 
+            0% { transform: perspective(800px) rotateX(-90deg); opacity: 0; } 
+            100% { transform: perspective(800px) rotateX(0deg); opacity: 1; } 
+          }
+          @keyframes flyInRight { 
+            0% { transform: translateX(100%); opacity: 0; } 
+            100% { transform: translateX(0); opacity: 1; } 
+          }
+          @keyframes flyUpImg { 
+            0% { transform: translateY(100%); opacity: 0; } 
+            100% { transform: translateY(0); opacity: 1; } 
+          }
+          @keyframes continuousZoom { 
+            0% { transform: scale(1); } 
+            100% { transform: scale(1.15); } 
+          }
+          @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+          
+          /* text anims */
+          @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+          @keyframes slideDown { from { opacity: 0; transform: translateY(-40px); } to { opacity: 1; transform: translateY(0); } }
+          @keyframes slideLeft { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
+          @keyframes zoomIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+          @keyframes popIn { 0% { opacity: 0; transform: scale(0.5); } 70% { opacity: 1; transform: scale(1.1); } 100% { transform: scale(1); } }
+        `}</style>
+        
+        <div className="grid grid-cols-12 gap-8 h-[460px]">
+          {/* 左侧配置区 */}
+          <div className="col-span-5 flex flex-col border-r border-[#333] pr-6">
+            <Form layout="vertical" className="flex-1 overflow-y-auto pr-2 dark-studio-form">
+              <Form.Item label="转场风格 (Transition Style)">
+                <Select 
+                  popupClassName="ios-glass-dropdown"
+                  mode="multiple"
+                  value={videoConfig.transition_style} 
+                  onChange={v => setVideoConfig({...videoConfig, transition_style: v})}
+                  options={[
+                    {label: "随机混合 (Random)", value: "random"},
+                    {label: "3D横向翻页 (Page Flip)", value: "page_flip"},
+                    {label: "卷页效果 (Page Curl)", value: "book_flip"},
+                    {label: "右侧飞入 (Fly In Right)", value: "fly_in_right"},
+                    {label: "缩放融入 (Zoom)", value: "zoom"},
+                    {label: "下方弹跳 (Fly Up)", value: "fly_up"},
+                    {label: "3D纵向翻折 (Vertical Flip)", value: "vertical_flip"},
+                    {label: "平滑淡入 (Crossfade)", value: "crossfade"}
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item label="文字效果 (Text Effect)">
+                <Select 
+                  popupClassName="ios-glass-dropdown"
+                  value={videoConfig.text_effect} 
+                  onChange={v => setVideoConfig({...videoConfig, text_effect: v})}
+                  options={[
+                    {label: "经典淡入 (Fade In)", value: "fade_in"},
+                    {label: "向上浮现 (Slide Up)", value: "slide_up"},
+                    {label: "向下掉落 (Slide Down)", value: "slide_down"},
+                    {label: "右侧滑入 (Slide Left)", value: "slide_left"},
+                    {label: "缩放放大 (Zoom In)", value: "zoom_in"},
+                    {label: "放大弹入 (Pop In)", value: "pop_in"}
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item label="贴纸装饰 (Sticker Effect)">
+                <Select 
+                  popupClassName="ios-glass-dropdown"
+                  value={videoConfig.sticker_effect} 
+                  onChange={v => setVideoConfig({...videoConfig, sticker_effect: v})}
+                  options={[
+                    {label: "无装饰 (None)", value: "none"},
+                    {label: "飘落花瓣 (Petals)", value: "petals"},
+                    {label: "古风边框 (Vintage Border)", value: "vintage_border"},
+                    {label: "暖阳漏光 (Light Leaks)", value: "light_leaks"},
+                    {label: "秋日落叶 (Falling Leaves)", value: "falling_leaves"},
+                    {label: "水墨点缀 (Ink Splatter)", value: "ink_splatter"}
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item label="AI语音解说 (Voice Over)">
+                <Select 
+                  popupClassName="ios-glass-dropdown"
+                  value={videoConfig.voice_over} 
+                  onChange={v => setVideoConfig({...videoConfig, voice_over: v})}
+                  options={[
+                    {label: "无语音 (None)", value: "none"},
+                    {label: "女声朗读 (Female)", value: "female"},
+                    {label: "男声朗读 (Male)", value: "male"}
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item label="背景音乐 (Background Music)" className="mb-0">
+                <Select 
+                  popupClassName="ios-glass-dropdown"
+                  value={videoConfig.bgm_type} 
+                  onChange={v => setVideoConfig({...videoConfig, bgm_type: v})}
+                  options={[
+                    {label: "默认古风 (Default)", value: "default"},
+                    {label: "无音乐 (None)", value: "none"}
+                  ]}
+                />
+              </Form.Item>
+            </Form>
           </div>
-        ) : videoResult && videoResult.success ? (
-          <div className="flex flex-col items-center gap-4 pt-2 pb-2">
-            <div className="w-full relative aspect-[9/16] bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-amber-900/20 max-h-[460px]">
-              <video
-                src={videoResult.video_url}
-                controls
-                autoPlay
-                className="w-full h-full object-contain"
-              />
+
+          {/* 右侧播放区 */}
+          <div className="col-span-7 flex flex-col items-center justify-center relative">
+            <div className="w-[258px] aspect-[9/16] bg-black rounded-xl overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.5)] relative border-2 border-[#333] flex items-center justify-center">
+              {videoLoading ? (
+                 <div className="flex flex-col items-center gap-4 text-center p-4">
+                   <Spin size="large" />
+                   <p className="text-[#e2b062] font-semibold tracking-wide text-sm">正在合成高质量视频...</p>
+                   <p className="text-[#888] text-xs">调用引擎渲染 · 压制MP4</p>
+                 </div>
+              ) : videoResult?.success ? (
+                 <video 
+                   src={videoResult.video_url} 
+                   controls 
+                   autoPlay 
+                   className="w-full h-full object-contain bg-black" 
+                 />
+              ) : (
+                 <div className="w-full h-full relative overflow-hidden bg-[#242426]">
+                   {/* CSS Simulation Placeholder */}
+                   <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/rice-paper-2.png')]"></div>
+                   
+                   {configPlant && (Boolean(configPlant.image_server_paths?.length) || Boolean(configPlant.image_url)) && (
+                     <div className="absolute inset-0 flex items-center justify-center">
+                       <div 
+                         key={Array.isArray(videoConfig.transition_style) ? videoConfig.transition_style.join(',') : videoConfig.transition_style} 
+                         className="relative w-[85%] aspect-[3/4] rounded-md shadow-xl bg-white p-2"
+                         style={{ 
+                           animation: (() => {
+                             const st = Array.isArray(videoConfig.transition_style) 
+                               ? (videoConfig.transition_style.length > 0 ? videoConfig.transition_style[0] : 'random')
+                               : videoConfig.transition_style;
+                             return st === 'page_flip' ? 'pageFlip 1.2s ease-out both' :
+                               st === 'book_flip' ? 'bookFlip 1.2s ease-out both' :
+                               st === 'vertical_flip' ? 'verticalFlip 1.2s ease-out both' :
+                               st === 'fly_in_right' ? 'flyInRight 1.2s ease-out both' :
+                               st === 'fly_up' ? 'flyUpImg 1.2s ease-out both' :
+                               st === 'zoom' ? 'continuousZoom 4s linear both' :
+                               st === 'crossfade' ? 'fadeIn 1.5s ease-out both' : 'none';
+                           })()
+                         }}
+                       >
+                         <div 
+                           className="w-full h-full bg-cover bg-center rounded-sm"
+                           style={{ backgroundImage: `url(${configPlant.image_server_paths?.[0] || configPlant.image_url || ""})` }}
+                         ></div>
+                       </div>
+                     </div>
+                   )}
+                   
+                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none"></div>
+                   
+                   {videoConfig.sticker_effect === 'petals' && (
+                     <div 
+                       className="absolute inset-0 pointer-events-none opacity-60 mix-blend-screen" 
+                       style={{ 
+                         backgroundImage: 'radial-gradient(circle, rgba(255,180,200,0.8) 2px, transparent 4px)', 
+                         backgroundSize: '40px 40px',
+                         backgroundPosition: '0 0, 20px 20px'
+                       }}
+                     ></div>
+                   )}
+                   {videoConfig.sticker_effect === 'vintage_border' && (
+                     <div className="absolute inset-0 border-[10px] border-[#e2b062]/20 pointer-events-none mix-blend-screen"></div>
+                   )}
+
+                   {configPlant && (
+                     <div className="absolute bottom-6 left-5 right-5 text-white z-10">
+                       <div 
+                         key={videoConfig.text_effect + (Array.isArray(videoConfig.transition_style) ? videoConfig.transition_style.join(',') : videoConfig.transition_style)}
+                         style={{
+                           animation: 
+                             videoConfig.text_effect === 'fade_in' ? 'fadeIn 1.2s ease-out both' :
+                             videoConfig.text_effect === 'slide_up' ? 'slideUp 1.2s ease-out both' :
+                             videoConfig.text_effect === 'slide_down' ? 'slideDown 1.2s ease-out both' :
+                             videoConfig.text_effect === 'slide_left' ? 'slideLeft 1.2s ease-out both' :
+                             videoConfig.text_effect === 'zoom_in' ? 'zoomIn 1.2s ease-out both' :
+                             videoConfig.text_effect === 'pop_in' ? 'popIn 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'none',
+                         }}
+                       >
+                         <h3 className="text-xl font-bold tracking-widest mb-1 drop-shadow-md">{pickSpeciesLabel(configPlant)}</h3>
+                         <p className="text-[11px] opacity-80 drop-shadow-md line-clamp-3 leading-relaxed">
+                           {configPlant.morphology_text || "一味珍贵的自然馈赠..."}
+                         </p>
+                       </div>
+                     </div>
+                   )}
+                 </div>
+              )}
             </div>
-            <div className="w-full flex items-center justify-between text-xs text-stone-500 px-1">
-              <span>分辨率：1080 × 1920 (竖屏 9:16)</span>
-              <span>大小：{(videoResult.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
-            </div>
-            <div className="w-full flex gap-3 mt-1">
-              <a
-                href={videoResult.video_url}
-                download={`${videoResult.vernacular_name || 'plant'}_20s.mp4`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1"
-              >
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  block
-                  className="bg-amber-700 hover:bg-amber-800 border-none h-10 font-medium"
-                >
-                  下载 MP4 视频
-                </Button>
-              </a>
-              <Button
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.origin + videoResult.video_url);
-                  message.success("视频链接已成功复制到剪贴板！");
-                }}
-                className="h-10 border-amber-700/40 text-amber-800 hover:text-amber-900"
-              >
-                复制外链
-              </Button>
-            </div>
+            
+            {!videoResult && !videoLoading && (
+               <div className="mt-4 px-4 py-2 bg-[#2a2a2c] rounded-md border border-[#444] text-[#aaa] text-xs shadow-md">
+                 <span className="material-symbols-outlined text-[14px] align-middle mr-1 text-[#e2b062]">info</span>
+                 左侧调整参数，上方为实时预览，点击右下方生成最终成片。
+               </div>
+            )}
           </div>
-        ) : (
-          <div className="py-8 text-center text-stone-500">生成发生异常，请稍后重试。</div>
-        )}
+        </div>
+
+        {/* 底部操作区 */}
+        <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-[#333]">
+          <Button 
+            onClick={() => {
+              setConfigModalOpen(false);
+              if (!videoLoading) setVideoResult(null);
+            }} 
+            style={{ color: '#aaa', borderColor: '#444', backgroundColor: 'transparent' }} 
+            className="hover:!text-white hover:!border-gray-400 font-medium"
+          >
+            取消
+          </Button>
+          <Button 
+            type="primary" 
+            onClick={handleGenerateVideo} 
+            loading={videoLoading}
+            className="bg-[#e2b062] hover:!bg-[#c89849] border-none text-black font-bold px-6"
+          >
+            {videoResult ? "重新生成视频" : "生成预览视频"}
+          </Button>
+          {videoResult?.video_url && (
+            <Button 
+              type="primary" 
+              onClick={handleDownloadVideo}
+              className="bg-green-600 hover:!bg-green-500 border-none font-bold flex items-center justify-center gap-1.5 px-5 ml-2"
+            >
+              <span className="material-symbols-outlined text-[18px]">download</span>
+              导出该视频
+            </Button>
+          )}
+        </div>
       </Modal>
     </>
   );

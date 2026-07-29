@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
+from pydantic import BaseModel
 
 from app.auth_utils import get_current_user
 from app.config import get_settings
@@ -18,12 +19,22 @@ from app.video_automation.video_compiler import compile_plant_video
 
 router = APIRouter(prefix="/video-automation", tags=["video-automation"])
 
+class VideoStyleConfig(BaseModel):
+    transition_style: list[str] | str = ["book_flip"]
+    text_effect: str = "fade_in"
+    sticker_effect: str = "none"
+    voice_over: str = "none"
+    bgm_type: str = "default"
+
 
 @router.post("/generate")
 def generate_video(
     plant_id: int,
-    current_user: Annotated[PlantAdminUser, Depends(get_current_user)]
+    current_user: Annotated[PlantAdminUser, Depends(get_current_user)],
+    style: VideoStyleConfig = None
 ):
+    if style is None:
+        style = VideoStyleConfig()
     """
     根据植物 ID 生成 20 秒短视频：
     - 读取植物信息
@@ -31,6 +42,7 @@ def generate_video(
     - 渲染 6 张古风 Slide 帧
     - 压制高兼容性 MP4 视频
     """
+    print(f"RECEIVED STYLE: {style.model_dump()}")
     # 1. 查询只读数据
     plant_data = get_plant_data_for_video(plant_id)
     if not plant_data:
@@ -66,7 +78,7 @@ def generate_video(
         raise HTTPException(status_code=500, detail=f"渲染图片帧失败: {str(e)}")
         
     # 5. 压制合成视频
-    success, msg = compile_plant_video(slides, output_path)
+    success, msg = compile_plant_video(slides, output_path, plant_data=plant_data, style=style)
     if not success:
         raise HTTPException(status_code=500, detail=f"压制视频失败: {msg}")
         
