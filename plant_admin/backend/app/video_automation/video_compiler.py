@@ -274,13 +274,8 @@ def generate_video_frames(slides: list[SlideData], style: Any, fps: int = 30) ->
             else:
                 ease_alpha = -0.5 * ((t - 1) * (t - 3) - 1)
                 
-            bg_offset = int(V_WIDTH * ease_alpha)
-            
-            # (1) 背景纸底图：统一向左侧滑
-            frame = Image.new("RGB", (V_WIDTH, V_HEIGHT))
-            frame.paste(bg_paper, (-bg_offset, 0))
-            frame.paste(bg_paper, (V_WIDTH - bg_offset, 0))
-            
+            # (1) 背景纸底图：100% 锁定固定不动
+            frame = bg_paper.copy()
             # (2) 文字与标题：淡入淡出 (Cross-fade) 或向上平移 (Slide Up)
             curr_t = apply_photo_opacity(curr_slide.text_canvas, 1.0 - ease_alpha)
             next_t = apply_photo_opacity(next_slide.text_canvas, ease_alpha)

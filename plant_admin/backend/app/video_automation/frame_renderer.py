@@ -78,6 +78,33 @@ def get_system_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+def get_art_font(size: int) -> ImageFont.FreeTypeFont:
+    """获取艺术中文字体（如方正舒体/华文行楷/楷体/隶书），提升大标题视觉效果。"""
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    font_path = base_dir / "data" / "video_assets" / "fonts" / "2.ttf"
+    if font_path.exists():
+        try:
+            return ImageFont.truetype(str(font_path.resolve()), size)
+        except Exception:
+            pass
+            
+    art_candidates = [
+        "C:\\Windows\\Fonts\\FZSTK.TTF",    # 方正舒体
+        "C:\\Windows\\Fonts\\STXINGKA.TTF", # 华文行楷
+        "C:\\Windows\\Fonts\\STLITI.TTF",   # 华文隶书
+        "C:\\Windows\\Fonts\\SIMLI.TTF",    # 隶书
+        "C:\\Windows\\Fonts\\simkai.ttf",   # 楷体
+        "C:\\Windows\\Fonts\\msyhbd.ttc",   # 微软雅黑 粗体
+    ]
+    for path in art_candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return get_system_font(size, bold=True)
+
+
 def get_custom_font(font_name: str, size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     """获取 data/video_assets/fonts 下指定的自定义字体，如果不存在则回退至系统字体。"""
     base_dir = Path(__file__).resolve().parent.parent.parent
@@ -134,22 +161,32 @@ def load_paper_background() -> Image.Image:
     return Image.new("RGB", (V_WIDTH, V_HEIGHT), (245, 240, 230))
 
 
+def crop_bottom_watermark(img: Image.Image, percent: float = 0.10) -> Image.Image:
+    """自动裁切原生植物图片底部 percent 区域（移除大部分水印/标签）"""
+    w, h = img.size
+    if h > 100:
+        crop_h = max(50, int(h * (1.0 - percent)))
+        return img.crop((0, 0, w, crop_h))
+    return img
+
+
 def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]:
     """
-    制作中间的植物照片卡片 RGBA 图层（含圆角与细边框），并计算 (x, y) 坐标。
+    制作中间的植物照片卡片 RGBA 图层（含圆角与细边框），自动裁切底部 10% 水印，并计算 (x, y) 坐标。
     """
     max_fg_w = V_WIDTH - 60
-    max_fg_h = 900
+    max_fg_h = 800
     
     if not img_path or not os.path.exists(img_path):
-        empty = Image.new("RGBA", (800, 600), (255, 255, 255, 0))
-        return empty, ((V_WIDTH - 800) // 2, 390)
+        empty = Image.new("RGBA", (800, 550), (255, 255, 255, 0))
+        return empty, ((V_WIDTH - 800) // 2, 380)
 
     try:
         orig = Image.open(img_path).convert("RGBA")
+        orig = crop_bottom_watermark(orig, percent=0.10)
     except Exception:
-        empty = Image.new("RGBA", (800, 600), (255, 255, 255, 0))
-        return empty, ((V_WIDTH - 800) // 2, 390)
+        empty = Image.new("RGBA", (800, 550), (255, 255, 255, 0))
+        return empty, ((V_WIDTH - 800) // 2, 380)
     
     orig_w, orig_h = orig.size
     fg_scale = min(max_fg_w / orig_w, max_fg_h / orig_h)
@@ -158,7 +195,7 @@ def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]
     fg_img = orig.resize((fg_w, fg_h), Image.Resampling.LANCZOS)
     
     fg_x = (V_WIDTH - fg_w) // 2
-    fg_y = 240 + (max_fg_h - fg_h) // 2
+    fg_y = 250 + (max_fg_h - fg_h) // 2
     
     fg_mask = Image.new("L", (fg_w, fg_h), 0)
     fg_mask_draw = ImageDraw.Draw(fg_mask)
@@ -174,7 +211,7 @@ def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]
 
 
 def create_circular_card(img_path: str, size: int = 650) -> tuple[Image.Image, tuple[int, int]]:
-    """制作封面专属的圆形带白框照片卡片 RGBA 图层。"""
+    """制作封面专属的圆形带白框照片卡片 RGBA 图层（自动裁切底部 10% 水印）。"""
     fg_x = (V_WIDTH - size) // 2
     fg_y = 420
     
@@ -184,6 +221,7 @@ def create_circular_card(img_path: str, size: int = 650) -> tuple[Image.Image, t
 
     try:
         orig = Image.open(img_path).convert("RGBA")
+        orig = crop_bottom_watermark(orig, percent=0.10)
     except Exception:
         return canvas, (fg_x, fg_y)
     
@@ -236,14 +274,14 @@ def get_6_slide_images(plant_data: dict[str, Any]) -> list[SlideData]:
             return ""
         return local_paths[idx % len(local_paths)]
         
-    font_title = get_custom_font("2.ttf", 80, bold=True)      
-    font_body_bold = get_custom_font("1.ttf", 46, bold=True)
-    font_body = get_custom_font("1.ttf", 42)
+    font_title = get_art_font(96)
+    font_body_bold = get_custom_font("1.ttf", 54, bold=True)
+    font_body = get_custom_font("1.ttf", 50)
     
-    font_cover_top = get_custom_font("2.ttf", 75, bold=True)      
-    font_cover_sub = get_custom_font("2.ttf", 55, bold=True)      
-    font_cover_title = get_custom_font("2.ttf", 110, bold=True)   
-    font_cover_meta = get_custom_font("2.ttf", 46, bold=True)
+    font_cover_top = get_art_font(85)
+    font_cover_sub = get_art_font(65)
+    font_cover_title = get_art_font(130)
+    font_cover_meta = get_custom_font("2.ttf", 50, bold=True)
     
     # ------------------ SLIDE 1: 封面 ------------------
     text_canvas1 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
