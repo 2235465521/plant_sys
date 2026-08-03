@@ -158,5 +158,30 @@ export async function generatePlantVideo(plantId: number, style?: VideoStyleConf
   return res.data;
 }
 
+export interface VideoTaskStatus {
+  task_id: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  progress: number;
+  step: string;
+  message: string;
+  video_url: string | null;
+  matched_plants: string[];
+  created_at: number;
+}
+
+export async function startSemanticVideoGeneration(prompt: string, style_preset: string = "ancient"): Promise<{ success: boolean; task_id: string; message: string }> {
+  const res = await api.post<{ success: boolean; task_id: string; message: string }>("/video-automation/semantic-generate", {
+    prompt,
+    style_preset
+  });
+  return res.data;
+}
+
+export async function getSemanticVideoTaskStatus(taskId: string): Promise<VideoTaskStatus> {
+  const res = await api.get<VideoTaskStatus>(`/video-automation/task-status/${taskId}`);
+  return res.data;
+}
+
 /** 主内容区「筛选」按钮触发，左侧分类栏短暂高亮 */
 export const PLANT_SIDEBAR_FLASH_EVENT = "plant-focus-filter-sidebar";
+

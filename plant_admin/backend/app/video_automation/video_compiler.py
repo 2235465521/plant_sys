@@ -463,3 +463,181 @@ def compile_plant_video(slides: list[SlideData], output_path: str, plant_data: A
             
     except Exception as e:
         return False, f"合成过程发生异常: {str(e)}"
+
+
+def compile_collection_video(
+    topic_title: str,
+    plants_data_list: list[dict],
+    output_path: str,
+    style: Any = None,
+    progress_callback: Any = None
+) -> tuple[bool, str]:
+    """
+    编译多植物专题合集短视频 (专题片头 + N*3精简章节 + 片尾 + 动态长轨 BGM)。
+    """
+    from app.video_automation.frame_renderer import (
+        render_title_curtain_frame,
+        render_outro_curtain_frame,
+        get_condensed_slide_images
+    )
+    from app.video_automation.image_downloader import ensure_enough_plant_images
+
+    if style is None:
+        from app.video_automation.main_router import VideoStyleConfig
+        style = VideoStyleConfig()
+
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    total_plants = len(plants_data_list)
+    if progress_callback:
+        progress_callback(15, f"准备合成专题 [{topic_title}]，匹配到 {total_plants} 种植物...")
+
+    all_slides: list[SlideData] = []
+    
+    # 1. 片头幕
+    title_slide = render_title_curtain_frame(topic_title, f"中国植物库 · {total_plants}种精选植物专题")
+    all_slides.append(title_slide)
+
+    # 2. 依次构建每个植物的章节 Slide
+    for idx, pdata in enumerate(plants_data_list):
+        pid = pdata.get("id")
+        vname = pdata.get("vernacular_name") or f"植物{pid}"
+        if progress_callback:
+            pct = 20 + int((idx / total_plants) * 50)
+            progress_callback(pct, f"正在处理第 {idx+1}/{total_plants} 种植物 [{vname}]...")
+
+        # 补齐至至少 3 张图片
+        try:
+            paths = ensure_enough_plant_images(
+                plant_id=pid,
+                vernacular_name=vname,
+                scientific_name=pdata.get("scientific_name") or "",
+                existing_server_paths=pdata.get("image_server_paths") or [],
+                target_count=3
+            )
+            pdata["image_server_paths"] = paths
+        except Exception as e:
+            print(f"[Warning] 植物 {vname} 图片补充异常: {e}")
+
+        badge_str = f"{idx+1:02d}/{total_plants:02d}"
+        plant_slides = get_condensed_slide_images(pdata, badge_str)
+        all_slides.extend(plant_slides)
+
+    # 3. 片尾幕
+    outro_slide = render_outro_curtain_frame(f"中国植物库 · {topic_title} 专题合成")
+    all_slides.append(outro_slide)
+
+    if progress_callback:
+        progress_callback(75, f"全部 {len(all_slides)} 帧画面已渲染完成，开始进行音视频压制...")
+
+    # 4. 计算视频总时长与帧数
+    # 每张 Slide 展示 75 帧 (2.5s) + 转场 25 帧 (0.83s) -> 100 帧/Slide
+    fps = 30
+    total_frames = len(all_slides) * 100
+    total_seconds = total_frames / float(fps)
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    bgm_path = get_default_bgm_path()
+
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-s", f"{V_WIDTH}x{V_HEIGHT}",
+        "-r", str(fps),
+        "-i", "-", # 0:v
+    ]
+
+    input_idx = 1
+    bgm_idx = -1
+
+    if bgm_path and os.path.exists(bgm_path):
+        cmd.extend(["-stream_loop", "-1", "-i", bgm_path])
+        bgm_idx = input_idx
+        input_idx += 1
+
+    fade_out_start = max(1.0, total_seconds - 2.5)
+    if bgm_idx != -1:
+        cmd.extend([
+            "-filter_complex",
+            f"[{bgm_idx}:a]volume=0.25,afade=t=out:st={fade_out_start:.1f}:d=2.0[aout]",
+            "-map", "0:v", "-map", "[aout]"
+        ])
+    else:
+        cmd.extend([
+            "-f", "lavfi",
+            "-i", "anullsrc=r=44100:cl=stereo",
+            "-map", "0:v", "-map", f"{input_idx}:a"
+        ])
+
+    cmd.extend([
+        "-t", f"{total_seconds:.2f}",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-crf", "21",
+        "-preset", "medium",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        output_path
+    ])
+
+    try:
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            startupinfo=startupinfo
+        )
+
+        bg_paper = load_paper_background()
+        global_frame_idx = 0
+
+        num_slides = len(all_slides)
+        for i in range(num_slides):
+            curr_slide = all_slides[i]
+            next_slide = all_slides[(i + 1) % num_slides]
+
+            # 静态帧 75 帧
+            for _ in range(75):
+                frame = curr_slide.full_slide.copy()
+                proc.stdin.write(frame.tobytes())
+                global_frame_idx += 1
+
+            # 转场帧 25 帧
+            for k in range(25):
+                ease = (k + 1) / 26.0
+                frame = bg_paper.copy()
+                curr_t = apply_photo_opacity(curr_slide.text_canvas, 1.0 - ease)
+                next_t = apply_photo_opacity(next_slide.text_canvas, ease)
+                frame.paste(curr_t, (0, 0), curr_t)
+                frame.paste(next_t, (0, 0), next_t)
+                draw_photo_transition(frame, i, curr_slide, next_slide, ease, style.transition_style)
+                proc.stdin.write(frame.tobytes())
+                global_frame_idx += 1
+
+            if progress_callback and (i % 2 == 0):
+                pct = 75 + int((i / num_slides) * 20)
+                progress_callback(pct, f"视频压制进度 [{i+1}/{num_slides}] 帧段...")
+
+        proc.stdin.close()
+        stdout_data, stderr_data = proc.communicate()
+
+        if proc.returncode == 0:
+            if progress_callback:
+                progress_callback(100, "视频压制与拼接已全部完成！")
+            return True, "合集视频合成成功"
+        else:
+            err_msg = stderr_data.decode("utf-8", errors="replace")
+            return False, f"FFmpeg 压制报错: {err_msg}"
+
+    except Exception as e:
+        return False, f"合成过程发生异常: {str(e)}"
+

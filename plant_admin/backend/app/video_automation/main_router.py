@@ -92,3 +92,181 @@ def generate_video(
         "video_url": video_url,
         "file_size_bytes": os.path.getsize(output_path) if os.path.exists(output_path) else 0
     }
+
+
+# ==============================================================================
+# 异步语义多功能视频生成 (Task Queue & Endpoints)
+# ==============================================================================
+import uuid
+import threading
+import time
+from typing import Dict
+
+video_tasks: Dict[str, dict] = {}
+tasks_lock = threading.Lock()
+
+
+class SemanticGenerateRequest(BaseModel):
+    prompt: str
+    style_preset: str = "ancient"
+
+
+def _update_task(task_id: str, **kwargs):
+    with tasks_lock:
+        if task_id in video_tasks:
+            video_tasks[task_id].update(kwargs)
+
+
+def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str):
+    """后台工作线程：执行语义解析 -> 候选植物检索 -> 视频渲染合成"""
+    try:
+        _update_task(task_id, status="processing", progress=5, step="正在进行 LLM 意图解析与数据库打分匹配...")
+        
+        from app.semantic_search import search_plants_for_video
+        from app.video_automation.video_compiler import compile_plant_video, compile_collection_video
+
+        search_result = search_plants_for_video(prompt)
+        mode = search_result.get("mode", "single")
+        topic_title = search_result.get("topic_title") or prompt[:10]
+        plants = search_result.get("plants") or []
+
+        if not plants:
+            _update_task(
+                task_id,
+                status="failed",
+                progress=100,
+                step="未匹配到植物",
+                message="数据库中未匹配到相关植物，请尝试修改提示词（如换成产地、功效或月份描述）。"
+            )
+            return
+
+        plant_names = [p.get("vernacular_name") or "未命名植物" for p in plants]
+        _update_task(
+            task_id,
+            progress=15,
+            step=f"语义识别为【{'单植物' if mode == 'single' and len(plants) == 1 else '专题合集'}】，成功精选 {len(plants)} 种植物: {', '.join(plant_names[:5])}{'...' if len(plants) > 5 else ''}",
+            matched_plants=plant_names
+        )
+
+        settings = get_settings()
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        media_dir = base_dir / settings.plant_media_subdir
+        video_dir = media_dir / "videos"
+        video_dir.mkdir(parents=True, exist_ok=True)
+
+        output_filename = f"semantic_{task_id[:8]}.mp4"
+        output_path = str((video_dir / output_filename).resolve())
+        style_config = VideoStyleConfig(transition_style="book_flip" if style_preset == "ancient" else "crossfade")
+
+        # 区分单植物 vs 多植物合集
+        if mode == "single" and len(plants) == 1:
+            pdata = plants[0]
+            pid = pdata["id"]
+            _update_task(task_id, progress=25, step=f"开始为单植物 [{pdata.get('vernacular_name')}] 渲染 6 帧画卷...")
+            
+            # 补齐图片至 6 张
+            try:
+                paths = ensure_enough_plant_images(
+                    plant_id=pid,
+                    vernacular_name=pdata.get("vernacular_name") or "",
+                    scientific_name=pdata.get("scientific_name") or "",
+                    existing_server_paths=pdata.get("image_server_paths") or [],
+                    target_count=6
+                )
+                pdata["image_server_paths"] = paths
+            except Exception as e:
+                print(f"[Warning] 搜图补充异常: {e}")
+
+            slides = get_6_slide_images(pdata)
+            _update_task(task_id, progress=60, step="正在压制 20s 单植物高清短视频...")
+            
+            success, msg = compile_plant_video(slides, output_path, plant_data=pdata, style=style_config)
+            if not success:
+                _update_task(task_id, status="failed", progress=100, step="压制失败", message=msg)
+                return
+        else:
+            def progress_cb(pct: int, msg_str: str):
+                _update_task(task_id, progress=pct, step=msg_str)
+
+            success, msg = compile_collection_video(
+                topic_title=topic_title,
+                plants_data_list=plants,
+                output_path=output_path,
+                style=style_config,
+                progress_callback=progress_cb
+            )
+            if not success:
+                _update_task(task_id, status="failed", progress=100, step="合集压制失败", message=msg)
+                return
+
+        video_url = f"/api/media/plants/videos/{output_filename}"
+        _update_task(
+            task_id,
+            status="completed",
+            progress=100,
+            step="生成成功！",
+            message=f"【{topic_title}】视频已为您打造完成！涵盖 {len(plants)} 种精选植物。",
+            video_url=video_url
+        )
+
+    except Exception as e:
+        print(f"[Task Error] {task_id}: {e}")
+        _update_task(task_id, status="failed", progress=100, step="异常失败", message=str(e))
+
+
+@router.post("/semantic-generate")
+def start_semantic_video_generation(
+    req: SemanticGenerateRequest,
+    current_user: Annotated[PlantAdminUser, Depends(get_current_user)]
+):
+    """
+    提交自然语言 Prompt 生成单植物或多植物合集视频（异步任务队列）。
+    """
+    if not req.prompt or not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="提示词不能为空")
+
+    task_id = str(uuid.uuid4())
+    now = time.time()
+    
+    with tasks_lock:
+        video_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "queued",
+            "progress": 0,
+            "step": "任务已排队等待处理...",
+            "message": "",
+            "video_url": None,
+            "matched_plants": [],
+            "created_at": now
+        }
+
+    t = threading.Thread(
+        target=_async_semantic_video_worker,
+        args=(task_id, req.prompt.strip(), req.style_preset),
+        daemon=True
+    )
+    t.start()
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "视频生成任务已提交，后台处理中..."
+    }
+
+
+@router.get("/task-status/{task_id}")
+def get_semantic_video_task_status(
+    task_id: str,
+    current_user: Annotated[PlantAdminUser, Depends(get_current_user)]
+):
+    """
+    轮询轮询获取异步视频生成任务的状态与进度。
+    """
+    with tasks_lock:
+        task = video_tasks.get(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail="未找到该视频生成任务")
+
+    return task
+

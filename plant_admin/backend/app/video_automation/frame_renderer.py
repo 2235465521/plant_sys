@@ -506,3 +506,164 @@ def get_6_slide_images(plant_data: dict[str, Any]) -> list[SlideData]:
     slides.append(SlideData(full_slide6, text_canvas6, photo_canvas6, photo_pos6))
     
     return slides
+
+
+def render_title_curtain_frame(title: str, subtitle: str = "中国植物库 · 专题精选") -> SlideData:
+    """渲染合集视频的主题片头幕 (1080x1920)。"""
+    paper = load_paper_background()
+    text_canvas = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_canvas)
+
+    # 装饰框
+    draw.rectangle([60, 60, V_WIDTH - 60, V_HEIGHT - 60], outline=(141, 24, 32), width=6)
+    draw.rectangle([75, 75, V_WIDTH - 75, V_HEIGHT - 75], outline=(180, 140, 60), width=2)
+
+    font_main = get_art_font(90)
+    font_sub = get_system_font(42, bold=True)
+    font_tip = get_system_font(32)
+
+    # 专题大标题换行
+    wrapped_title = wrap_text(title, font_main, 850)
+    y_title = 750 - (len(wrapped_title) * 55)
+    for line in wrapped_title:
+        draw.text((V_WIDTH // 2, y_title), line, fill=(141, 24, 32), font=font_main, anchor="mm")
+        y_title += 110
+
+    # 副标题与古风落款印章图形
+    draw.line([(V_WIDTH // 2 - 200, y_title + 40), (V_WIDTH // 2 + 200, y_title + 40)], fill=(180, 140, 60), width=3)
+    draw.text((V_WIDTH // 2, y_title + 100), subtitle, fill=(40, 60, 40), font=font_sub, anchor="mm")
+    
+    # 底部说明
+    draw.text((V_WIDTH // 2, 1720), "AI 智能自动合成 · 卷轴画卷", fill=(100, 100, 100), font=font_tip, anchor="mm")
+
+    # 照片层空，整体合成
+    paper.paste(text_canvas, (0, 0), text_canvas)
+    empty_photo = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    return SlideData(paper, text_canvas, empty_photo, (0, 0))
+
+
+def render_outro_curtain_frame(text: str = "中国植物库 · 自动生成出品") -> SlideData:
+    """渲染合集视频的专题片尾幕 (1080x1920)。"""
+    paper = load_paper_background()
+    text_canvas = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_canvas)
+
+    draw.rectangle([80, 80, V_WIDTH - 80, V_HEIGHT - 80], outline=(141, 24, 32), width=4)
+    font_main = get_art_font(72)
+    font_sub = get_system_font(38)
+
+    draw.text((V_WIDTH // 2, V_HEIGHT // 2 - 60), "全篇完", fill=(141, 24, 32), font=font_main, anchor="mm")
+    draw.text((V_WIDTH // 2, V_HEIGHT // 2 + 60), text, fill=(50, 50, 50), font=font_sub, anchor="mm")
+
+    paper.paste(text_canvas, (0, 0), text_canvas)
+    empty_photo = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    return SlideData(paper, text_canvas, empty_photo, (0, 0))
+
+
+def get_condensed_slide_images(plant_data: dict, chapter_badge: str = "01/08") -> list[SlideData]:
+    """为合集视频渲染 3 帧精简版 Slide（带有章节序号角标）。"""
+    slides: list[SlideData] = []
+    
+    paths = plant_data.get("image_server_paths") or []
+    def get_img_path(idx: int):
+        if idx < len(paths) and os.path.exists(paths[idx]):
+            return paths[idx]
+        return paths[0] if (paths and os.path.exists(paths[0])) else None
+
+    font_badge = get_system_font(32, bold=True)
+    font_vname = get_art_font(84)
+    font_sname = get_system_font(34)
+    font_title = get_art_font(60)
+    font_body = get_system_font(36)
+    font_body_bold = get_system_font(38, bold=True)
+
+    vernacular_name = plant_data.get("vernacular_name") or "未命名植物"
+    scientific_name = plant_data.get("scientific_name") or ""
+
+    def draw_badge(draw_obj: ImageDraw.ImageDraw):
+        """在右上角绘制形如 [ 01/08 人参 ] 的古风红框标签。"""
+        badge_str = f"NO.{chapter_badge}  {vernacular_name}"
+        draw_obj.rectangle([60, 60, 60 + 420, 60 + 64], fill=(141, 24, 32, 230))
+        draw_obj.text((60 + 210, 60 + 32), badge_str, fill=(255, 255, 240), font=font_badge, anchor="mm")
+
+    # ----- 章节 SLIDE 1: 封面大图与名片 -----
+    tc1 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+    d1 = ImageDraw.Draw(tc1)
+    draw_badge(d1)
+
+    d1.text((V_WIDTH // 2, 200), vernacular_name, fill=(141, 24, 32), font=font_vname, anchor="mm")
+    if is_valid_text(scientific_name):
+        d1.text((V_WIDTH // 2, 275), scientific_name, fill=(100, 100, 100), font=font_sname, anchor="mm")
+
+    med_part = plant_data.get("medicinal_part")
+    if is_valid_text(med_part):
+        d1.text((V_WIDTH // 2, 1260), f"【入药部位】 {med_part}", fill=(198, 40, 40), font=font_body_bold, anchor="mm")
+
+    morph = plant_data.get("morphology_text")
+    if is_valid_text(morph):
+        wrapped = wrap_text(str(morph).strip(), font_body, 820)
+        y = 1340
+        for line in wrapped[:3]:
+            d1.text((130, y), line, fill=(40, 40, 40), font=font_body)
+            y += 55
+
+    pc1, pos1 = create_foreground_card(get_img_path(0))
+    fs1 = load_paper_background()
+    fs1.paste(tc1, (0, 0), tc1)
+    fs1.paste(pc1, pos1, pc1)
+    slides.append(SlideData(fs1, tc1, pc1, pos1))
+
+    # ----- 章节 SLIDE 2: 药用性状与特征 -----
+    tc2 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+    d2 = ImageDraw.Draw(tc2)
+    draw_badge(d2)
+    d2.text((V_WIDTH // 2, 180), "药材性状特征", fill=(141, 24, 32), font=font_title, anchor="mm")
+
+    med_shape = plant_data.get("medicinal_shape")
+    if is_valid_text(med_shape):
+        d2.text((130, 1230), "【饮片与鉴别特征】", fill=(180, 80, 20), font=font_body_bold)
+        wrapped = wrap_text(str(med_shape).strip(), font_body, 820)
+        y = 1295
+        for line in wrapped[:4]:
+            d2.text((130, y), line, fill=(40, 40, 40), font=font_body)
+            y += 55
+
+    pc2, pos2 = create_foreground_card(get_img_path(1))
+    fs2 = load_paper_background()
+    fs2.paste(tc2, (0, 0), tc2)
+    fs2.paste(pc2, pos2, pc2)
+    slides.append(SlideData(fs2, tc2, pc2, pos2))
+
+    # ----- 章节 SLIDE 3: 产地分布与环境 -----
+    tc3 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+    d3 = ImageDraw.Draw(tc3)
+    draw_badge(d3)
+    d3.text((V_WIDTH // 2, 180), "生境与分布", fill=(141, 24, 32), font=font_title, anchor="mm")
+
+    habitat = plant_data.get("habitat")
+    dist = plant_data.get("distribution_china")
+    y = 1230
+    if is_valid_text(habitat):
+        d3.text((130, y), "【生态习性】", fill=(20, 60, 40), font=font_body_bold)
+        y += 55
+        wrapped = wrap_text(str(habitat).strip(), font_body, 820)
+        for line in wrapped[:2]:
+            d3.text((130, y), line, fill=(40, 40, 40), font=font_body)
+            y += 50
+    if is_valid_text(dist):
+        y += 15
+        d3.text((130, y), "【主要产地】", fill=(198, 40, 40), font=font_body_bold)
+        y += 55
+        wrapped = wrap_text(str(dist).strip(), font_body, 820)
+        for line in wrapped[:2]:
+            d3.text((130, y), line, fill=(40, 40, 40), font=font_body)
+            y += 50
+
+    pc3, pos3 = create_foreground_card(get_img_path(2))
+    fs3 = load_paper_background()
+    fs3.paste(tc3, (0, 0), tc3)
+    fs3.paste(pc3, pos3, pc3)
+    slides.append(SlideData(fs3, tc3, pc3, pos3))
+
+    return slides
+

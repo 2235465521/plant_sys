@@ -193,3 +193,129 @@ def query_semantic_similarity(query: str, allowed_ids: list[int] = None) -> list
         
     finally:
         conn.close()
+
+
+def fetch_video_intent(prompt_text: str) -> dict:
+    """
+    使用 LLM 分析用户的视频生成提示词，提取模式、目标数量、专题标题及数据库检索参数。
+    """
+    system_prompt = """你是一个专业的中草药与视频创作意图解析专家。用户输入了一个视频生成提示词。
+请帮我分析该提示词所表达的视频创作意图，并严格提取为 JSON 控制指令：
+1. mode: "single"（若用户明确只想要某一种具体植物的视频，如"人参视频"）或 "collection"（若用户想要多植物合集、排行榜或某类植物集合，如"十大中药"、"浙八味"、"夏季中药"）。
+2. target_count: 整数。若 mode 为 "single" 则为 1；若为 "collection"，按用户指定的数字提取（如"十大"->10,"五大"->5），若未指定数量默认返回 8（范围 2~10）。
+3. topic_title: 字符串。短小精致的视频专题主标题（如"十大中药植物"、"浙八味名贵药材"、"夏采中草药大盘点"；单植物时即为植物名如"人参"）。
+4. style_preset: 字符串。"ancient"（默认古风）或 "modern"。
+5. harvest_months: 数组。提到季节/月份数字。
+6. food_therapy_months: 数组。
+7. habitats: 字符串数组。("森林","草原","湿地","荒漠","高山雪线","山坡荒地"等)
+8. rankings: 字符串数组。("sweetest","bitterest","rarity","growth_cycle"等)
+9. regions: 字符串数组。("浙江","河南","四川","广药","浙八味"等)
+10. keywords: 字符串数组。1-3个检索关键字。
+
+请严格以下方的 JSON 格式返回：
+{
+    "mode": "collection",
+    "target_count": 8,
+    "topic_title": "精选植物集",
+    "style_preset": "ancient",
+    "harvest_months": [],
+    "food_therapy_months": [],
+    "habitats": [],
+    "rankings": [],
+    "regions": [],
+    "keywords": []
+}"""
+
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    payload = {
+        "model": "deepseek-v4-flash",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
+            {"role": "user", "content": f"视频生成提示词：\"{prompt_text}\"\n{system_prompt}"}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1
+    }
+
+    try:
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            resp_bytes = response.read()
+            resp_data = json.loads(resp_bytes.decode("utf-8"))
+            content_str = resp_data["choices"][0]["message"]["content"]
+            return json.loads(content_str)
+    except Exception as e:
+        print(f"LLM 视频意图解析异常: {e}")
+        return {
+            "mode": "collection" if ("十" in prompt_text or "八" in prompt_text or "类" in prompt_text or "合集" in prompt_text) else "single",
+            "target_count": 8 if ("十" in prompt_text or "合集" in prompt_text) else 1,
+            "topic_title": prompt_text[:10],
+            "style_preset": "ancient",
+            "harvest_months": [],
+            "food_therapy_months": [],
+            "habitats": [],
+            "rankings": [],
+            "regions": [],
+            "keywords": [prompt_text]
+        }
+
+
+def search_plants_for_video(prompt_text: str) -> dict:
+    """
+    根据自然语言视频提示词，解析意图并从数据库中检索打分最匹配的植物列表（包含柔性降级截取）。
+    """
+    intent = fetch_video_intent(prompt_text)
+    mode = intent.get("mode", "single")
+    target_count = int(intent.get("target_count", 1 if mode == "single" else 8))
+    target_count = max(1, min(target_count, 10))
+    topic_title = intent.get("topic_title") or prompt_text[:12]
+    style_preset = intent.get("style_preset", "ancient")
+
+    # 借用相似度计算逻辑
+    scores = query_semantic_similarity(prompt_text)
+    
+    from app.video_automation.db_reader import get_plant_data_for_video
+
+    matched_plants = []
+    if scores:
+        # 取 Top-N 植物 ID
+        top_pids = [item[0] for item in scores[:target_count]]
+        for pid in top_pids:
+            pdata = get_plant_data_for_video(pid)
+            if pdata:
+                matched_plants.append(pdata)
+
+    # 降级备用：如果打分没有匹配到任何植物，回退模糊查询前 N 条植物
+    if not matched_plants:
+        from app.database import connect_mysql
+        conn = connect_mysql()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM plant_classification_import WHERE vernacular_name LIKE %s LIMIT %s",
+                    (f"%{prompt_text}%", target_count)
+                )
+                rows = cur.fetchall() or []
+                for r in rows:
+                    pdata = get_plant_data_for_video(r["id"])
+                    if pdata:
+                        matched_plants.append(pdata)
+        finally:
+            conn.close()
+
+    return {
+        "mode": mode,
+        "target_count": target_count,
+        "topic_title": topic_title,
+        "style_preset": style_preset,
+        "plants": matched_plants
+    }
+

@@ -19,9 +19,22 @@ import {
   Empty,
   message,
   Popconfirm,
-  Pagination
+  Pagination,
+  Progress
 } from "antd";
-import { api, Plant, PlantRanking, PlantRegion, PlantConfusionGroup, PlantConfusionItem, getToken } from "../api";
+import {
+  api,
+  Plant,
+  PlantRanking,
+  PlantRegion,
+  PlantConfusionGroup,
+  PlantConfusionItem,
+  getToken,
+  startSemanticVideoGeneration,
+  getSemanticVideoTaskStatus,
+  VideoTaskStatus
+} from "../api";
+
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -67,6 +80,247 @@ function getSvgFallback(name: string, text = "暂无图片"): string {
   `);
 }
 
+function AiVideoStudioCard() {
+  const [prompt, setPrompt] = useState("");
+  const [stylePreset, setStylePreset] = useState("ancient");
+  const [loading, setLoading] = useState(false);
+
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [taskStatus, setTaskStatus] = useState<VideoTaskStatus | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!activeTaskId || !modalOpen) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const st = await getSemanticVideoTaskStatus(activeTaskId);
+        setTaskStatus(st);
+        if (st.status === "completed" || st.status === "failed") {
+          clearInterval(interval);
+          setLoading(false);
+          if (st.status === "completed") {
+            message.success("视频合成完成！");
+          } else {
+            message.error(st.message || "视频合成失败");
+          }
+        }
+      } catch (err) {
+        console.error("Poll task error:", err);
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [activeTaskId, modalOpen]);
+
+  const handleGenerate = async (customPrompt?: string) => {
+    const targetPrompt = customPrompt || prompt;
+    if (!targetPrompt.trim()) {
+      message.warning("请输入或选择视频生成的提示词！");
+      return;
+    }
+    setLoading(true);
+    setTaskStatus(null);
+    setModalOpen(true);
+    try {
+      const res = await startSemanticVideoGeneration(targetPrompt, stylePreset);
+      if (res.success && res.task_id) {
+        setActiveTaskId(res.task_id);
+      } else {
+        message.error("提交生成任务失败");
+        setLoading(false);
+        setModalOpen(false);
+      }
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || "发起视频生成失败");
+      setLoading(false);
+      setModalOpen(false);
+    }
+  };
+
+  const inspirationTags = [
+    { label: "✨ 十大中药植物", text: "做一条关于十大中药植物介绍视频" },
+    { label: "🌿 浙八味名贵药材", text: "生成一条浙八味名贵药材专题介绍视频" },
+    { label: "☀️ 夏季采收中草药", text: "我想做一条关于夏季采收的药用植物合集" },
+    { label: "🍵 常见食疗同源植物", text: "帮我生成一条常见食疗同源植物短视频" },
+    { label: "🏔️ 高山野生生境植物", text: "做一条高山野生生境植物视频" },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-primary/20 bg-gradient-to-r from-emerald-950/40 via-primary/10 to-teal-950/30 p-6 shadow-md text-on-surface">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-primary/15 pb-4 mb-4">
+        <div>
+          <h2 className="text-xl font-bold text-primary flex items-center gap-2">
+            <span className="material-symbols-outlined text-[24px] text-amber-500">auto_videocam</span>
+            AI 视频创作工坊 (Semantic Video Studio)
+          </h2>
+          <p className="text-xs text-on-surface-variant mt-1">
+            输入自然语言指令，AI 将通过 DeepSeek 语义解析匹配植物，一键为您自动化生成古风画卷或专题合集短视频。
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-on-surface-variant font-medium">视觉画风：</span>
+          <Select value={stylePreset} onChange={setStylePreset} size="small" style={{ width: 130 }}>
+            <Option value="ancient">古风宣纸画卷</Option>
+            <Option value="modern">现代简约风格</Option>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onPressEnter={() => handleGenerate()}
+            placeholder="例如：『做一条关于十大中药植物介绍视频』或『生成人参短视频』..."
+            size="large"
+            className="rounded-xl"
+            allowClear
+          />
+          <Button
+            type="primary"
+            size="large"
+            loading={loading}
+            onClick={() => handleGenerate()}
+            icon={<span className="material-symbols-outlined text-[18px]">movie</span>}
+            className="rounded-xl px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border-none shadow-sm font-bold"
+          >
+            一键生成视频
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-on-surface-variant flex items-center gap-1 font-medium">
+            <span className="material-symbols-outlined text-[14px]">lightbulb</span>
+            灵感推荐：
+          </span>
+          {inspirationTags.map((tag) => (
+            <Tag
+              key={tag.label}
+              className="cursor-pointer rounded-lg bg-surface/80 hover:bg-primary/20 border-primary/30 text-on-surface px-2.5 py-1 transition-all"
+              onClick={() => {
+                setPrompt(tag.text);
+                handleGenerate(tag.text);
+              }}
+            >
+              {tag.label}
+            </Tag>
+          ))}
+        </div>
+      </div>
+
+      <Modal
+        open={modalOpen}
+        onCancel={() => {
+          if (taskStatus?.status !== "processing") {
+            setModalOpen(false);
+          }
+        }}
+        footer={null}
+        width={680}
+        destroyOnClose
+        title={
+          <div className="flex items-center gap-2 text-primary font-bold text-lg">
+            <span className="material-symbols-outlined text-amber-500">video_library</span>
+            {taskStatus?.status === "completed" ? "视频合成完成" : "AI 视频创作生成中..."}
+          </div>
+        }
+      >
+        {taskStatus ? (
+          <div className="py-4 space-y-6">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-sm font-medium">
+                <span className="text-on-surface flex items-center gap-2">
+                  {taskStatus.status === "processing" && <Spin size="small" />}
+                  {taskStatus.step || "处理中..."}
+                </span>
+                <span className="text-primary font-bold">{taskStatus.progress}%</span>
+              </div>
+              <Progress
+                percent={taskStatus.progress}
+                status={
+                  taskStatus.status === "failed"
+                    ? "exception"
+                    : taskStatus.status === "completed"
+                    ? "success"
+                    : "active"
+                }
+                strokeColor={{ "0%": "#10B981", "100%": "#0D9488" }}
+                showInfo={false}
+              />
+            </div>
+
+            {taskStatus.matched_plants && taskStatus.matched_plants.length > 0 && (
+              <div className="p-3.5 rounded-xl bg-surface-variant/40 border border-on-surface/10">
+                <div className="text-xs text-on-surface-variant mb-2 font-medium">
+                  精选匹配植物清单 ({taskStatus.matched_plants.length} 种)：
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {taskStatus.matched_plants.map((name, idx) => (
+                    <Tag key={idx} color="emerald" className="rounded-md">
+                      {idx + 1}. {name}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {taskStatus.status === "completed" && taskStatus.video_url && (
+              <div className="space-y-4">
+                <div className="text-center font-medium text-emerald-600 text-sm">
+                  🎉 {taskStatus.message}
+                </div>
+                <div className="flex justify-center bg-black/90 rounded-2xl p-2 shadow-inner">
+                  <video
+                    src={taskStatus.video_url}
+                    controls
+                    autoPlay
+                    className="max-h-[480px] rounded-xl object-contain"
+                  />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button onClick={() => setModalOpen(false)}>关闭</Button>
+                  <Button
+                    type="primary"
+                    icon={<span className="material-symbols-outlined text-[16px]">download</span>}
+                    href={taskStatus.video_url}
+                    target="_blank"
+                    download
+                    className="bg-emerald-600 hover:bg-emerald-500 border-none"
+                  >
+                    下载 MP4 视频
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {taskStatus.status === "failed" && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 text-sm space-y-2">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px]">error</span>
+                  生成过程遇到问题
+                </div>
+                <div>{taskStatus.message || "请稍后重试或尝试更换提示词。"}</div>
+                <div className="flex justify-end pt-2">
+                  <Button type="primary" danger onClick={() => setModalOpen(false)}>
+                    关闭
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="py-12 text-center space-y-3">
+            <Spin size="large" />
+            <div className="text-sm text-on-surface-variant font-medium">正在准备后台渲染资源，请稍候...</div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 export default function FeaturesPage() {
   const [activeTab, setActiveTab] = useState<string>("habitats");
   
@@ -107,6 +361,10 @@ export default function FeaturesPage() {
           查看场景分类分布、特色排行榜、道地药材区域组合，或通过易混淆专题进行植物的形态与药用特征的多维度对比。
         </p>
       </div>
+
+      {/* AI 视频创作工坊 */}
+      <AiVideoStudioCard />
+
 
       {/* Main Tabs */}
       <Tabs
