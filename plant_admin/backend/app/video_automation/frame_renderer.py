@@ -172,42 +172,55 @@ def crop_bottom_watermark(img: Image.Image, percent: float = 0.10) -> Image.Imag
 
 def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]:
     """
-    制作中间的植物照片卡片 RGBA 图层（含圆角与细边框），自动裁切底部 10% 水印，并计算 (x, y) 坐标。
+    制作中间的植物照片卡片 RGBA 图层（含圆角与精美古风规则双边框）。
+    改进项：
+    1. 相同布局的照片尺寸统一为 880x680，实现极致视觉对齐与质感；
+    2. 垂直位置下移至 y=360，给顶部标题预留舒朗空间；
+    3. 智能自适应 Fill/Cover，彻底消除竖图两侧过大空白与拉伸留白。
     """
-    max_fg_w = V_WIDTH - 60
-    max_fg_h = 800
+    card_w = 880
+    card_h = 680
+    card_x = (V_WIDTH - card_w) // 2  # 100
+    card_y = 360                     # 下移至 360，避免挤压顶部
     
     if not img_path or not os.path.exists(img_path):
-        empty = Image.new("RGBA", (800, 550), (255, 255, 255, 0))
-        return empty, ((V_WIDTH - 800) // 2, 380)
+        empty = Image.new("RGBA", (card_w, card_h), (255, 255, 255, 0))
+        return empty, (card_x, card_y)
 
     try:
         orig = Image.open(img_path).convert("RGBA")
         orig = crop_bottom_watermark(orig, percent=0.10)
     except Exception:
-        empty = Image.new("RGBA", (800, 550), (255, 255, 255, 0))
-        return empty, ((V_WIDTH - 800) // 2, 380)
+        empty = Image.new("RGBA", (card_w, card_h), (255, 255, 255, 0))
+        return empty, (card_x, card_y)
     
     orig_w, orig_h = orig.size
-    fg_scale = min(max_fg_w / orig_w, max_fg_h / orig_h)
-    fg_w = max(100, int(orig_w * fg_scale))
-    fg_h = max(100, int(orig_h * fg_scale))
-    fg_img = orig.resize((fg_w, fg_h), Image.Resampling.LANCZOS)
     
-    fg_x = (V_WIDTH - fg_w) // 2
-    fg_y = 250 + (max_fg_h - fg_h) // 2
+    # 智能自适应 Fill/Cover 模式：保持高保真自适应自充满 880x680，消除竖图边框过大留白
+    scale = max(card_w / float(orig_w), card_h / float(orig_h))
+    new_w = max(1, int(orig_w * scale))
+    new_h = max(1, int(orig_h * scale))
+    resized = orig.resize((new_w, new_h), Image.Resampling.LANCZOS)
     
-    fg_mask = Image.new("L", (fg_w, fg_h), 0)
+    crop_x = (new_w - card_w) // 2
+    crop_y = (new_h - card_h) // 2
+    fg_img = resized.crop((crop_x, crop_y, crop_x + card_w, crop_y + card_h))
+    
+    # 精致圆角遮罩 (radius=24)
+    fg_mask = Image.new("L", (card_w, card_h), 0)
     fg_mask_draw = ImageDraw.Draw(fg_mask)
-    fg_mask_draw.rounded_rectangle([0, 0, fg_w, fg_h], radius=20, fill=255)
+    fg_mask_draw.rounded_rectangle([0, 0, card_w, card_h], radius=24, fill=255)
     
-    fg_canvas = Image.new("RGBA", (fg_w, fg_h), (255, 255, 255, 255))
+    fg_canvas = Image.new("RGBA", (card_w, card_h), (255, 255, 255, 255))
     fg_canvas.paste(fg_img, (0, 0), fg_mask)
     
+    # 绘制双重古风边框 (红色外框 + 金色内衬框)
     fg_draw = ImageDraw.Draw(fg_canvas)
-    fg_draw.rounded_rectangle([0, 0, fg_w, fg_h], radius=20, outline=(101, 80, 60, 150), width=3)
+    fg_draw.rounded_rectangle([0, 0, card_w, card_h], radius=24, outline=(141, 24, 32, 200), width=4)
+    fg_draw.rounded_rectangle([6, 6, card_w - 6, card_h - 6], radius=20, outline=(210, 170, 100, 150), width=2)
     
-    return fg_canvas, (fg_x, fg_y)
+    return fg_canvas, (card_x, card_y)
+
 
 
 def create_circular_card(img_path: str, size: int = 650) -> tuple[Image.Image, tuple[int, int]]:

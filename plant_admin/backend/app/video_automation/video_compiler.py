@@ -80,129 +80,98 @@ def draw_photo_transition(
         effect = effect_map[current_style]
     else:
         effect = trans_idx % 7
+
+
+    # 使用 Smooth Cubic S-Curve 三次缓动曲线，让物理翻页带有自然重力惯性
+    if ease < 0.5:
+        s_ease = 4.0 * ease * ease * ease
+    else:
+        f = 2.0 * ease - 2.0
+        s_ease = 0.5 * f * f * f + 1.0
     
-    if effect == 0:
-        # 1. 3D 横向翻页 (Page Flip)
-        if ease < 0.5:
-            progress = ease * 2.0
-            scale_x = max(0.01, 1.0 - progress)
+    if effect == 0 or effect == 6:
+        # 1. 自然 3D 书本卷轴翻页 (3D Book/Page Flip)
+        # 以书脊为轴进行极其平滑自然的三维翻页，包含阴影渐变与背面质感
+        if s_ease < 0.5:
+            progress = s_ease * 2.0
+            scale_x = max(0.005, (1.0 - progress) ** 1.2)
             p_img, dx, dy = apply_photo_scale(curr_p, scale_x, 1.0)
-            frame.paste(p_img, (curr_pos[0] + dx, curr_pos[1] + dy), p_img)
+            # 左侧书脊轴固定，右侧向左翻折
+            frame.paste(p_img, (curr_pos[0], curr_pos[1]), p_img)
+            
+            # 添加翻页暗面影效果
+            if progress > 0.1:
+                shadow = Image.new("RGBA", p_img.size, (0, 0, 0, int(120 * progress)))
+                frame.paste(shadow, (curr_pos[0], curr_pos[1]), p_img)
         else:
-            progress = (ease - 0.5) * 2.0
-            scale_x = max(0.01, progress)
+            progress = (s_ease - 0.5) * 2.0
+            scale_x = max(0.005, progress ** 1.2)
             p_img, dx, dy = apply_photo_scale(next_p, scale_x, 1.0)
-            frame.paste(p_img, (next_pos[0] + dx, next_pos[1] + dy), p_img)
+            # 新一页从书脊轴展开
+            frame.paste(p_img, (next_pos[0], next_pos[1]), p_img)
+            
+            # 亮面高光展平
+            if progress < 0.9:
+                highlight = Image.new("RGBA", p_img.size, (255, 255, 255, int(90 * (1.0 - progress))))
+                frame.paste(highlight, (next_pos[0], next_pos[1]), p_img)
 
     elif effect == 1:
         # 2. 从右侧飞入 (Fly in from Right)
-        if ease < 0.5:
-            op = 1.0 - ease * 2.0
+        if s_ease < 0.5:
+            op = 1.0 - s_ease * 2.0
             p_img = apply_photo_opacity(curr_p, op)
-            frame.paste(p_img, (curr_pos[0] - int(120 * ease), curr_pos[1]), p_img)
+            frame.paste(p_img, (curr_pos[0] - int(120 * s_ease), curr_pos[1]), p_img)
         else:
-            fly_progress = (1.0 - ease) * 2.0
+            fly_progress = (1.0 - s_ease) * 2.0
             offset_x = int(V_WIDTH * fly_progress)
             frame.paste(next_p, (next_pos[0] + offset_x, next_pos[1]), next_p)
 
     elif effect == 2:
         # 3. 缩放融入融出 (Zoom & Cross-Fade)
-        curr_op = 1.0 - ease
-        curr_scale = 1.0 + 0.15 * ease
+        curr_op = 1.0 - s_ease
+        curr_scale = 1.0 + 0.15 * s_ease
         p1, dx1, dy1 = apply_photo_scale(apply_photo_opacity(curr_p, curr_op), curr_scale, curr_scale)
         frame.paste(p1, (curr_pos[0] + dx1, curr_pos[1] + dy1), p1)
         
-        next_op = ease
-        next_scale = 0.8 + 0.2 * ease
+        next_op = s_ease
+        next_scale = 0.8 + 0.2 * s_ease
         p2, dx2, dy2 = apply_photo_scale(apply_photo_opacity(next_p, next_op), next_scale, next_scale)
         frame.paste(p2, (next_pos[0] + dx2, next_pos[1] + dy2), p2)
 
     elif effect == 3:
         # 4. 从下方飞入 (Fly up from Bottom)
-        if ease < 0.5:
-            offset_y = int(V_HEIGHT * (ease * 2.0))
+        if s_ease < 0.5:
+            offset_y = int(V_HEIGHT * (s_ease * 2.0))
             frame.paste(curr_p, (curr_pos[0], curr_pos[1] - offset_y), curr_p)
         else:
-            fly_y = int(V_HEIGHT * (1.0 - (ease - 0.5) * 2.0))
+            fly_y = int(V_HEIGHT * (1.0 - (s_ease - 0.5) * 2.0))
             frame.paste(next_p, (next_pos[0], next_pos[1] + fly_y), next_p)
 
     elif effect == 4:
         # 5. 3D 纵向翻折 (Vertical Flip)
-        if ease < 0.5:
-            progress = ease * 2.0
+        if s_ease < 0.5:
+            progress = s_ease * 2.0
             scale_y = max(0.01, 1.0 - progress)
             p_img, dx, dy = apply_photo_scale(curr_p, 1.0, scale_y)
             frame.paste(p_img, (curr_pos[0] + dx, curr_pos[1] + dy), p_img)
         else:
-            progress = (ease - 0.5) * 2.0
+            progress = (s_ease - 0.5) * 2.0
             scale_y = max(0.01, progress)
             p_img, dx, dy = apply_photo_scale(next_p, 1.0, scale_y)
             frame.paste(p_img, (next_pos[0] + dx, next_pos[1] + dy), p_img)
 
-    elif effect == 5:
-        # 6. 渐变融入 (Smooth Cross-fade)
-        p1 = apply_photo_opacity(curr_p, 1.0 - ease)
-        frame.paste(p1, curr_pos, p1)
-        p2 = apply_photo_opacity(next_p, ease)
-        frame.paste(p2, next_pos, p2)
-
     else:
-        # 7. 卷页效果 (Page Curl) - 带有卷曲背部和阴影的对角线翻页
-        # 底图是 next_p
-        frame.paste(next_p, next_pos)
-        
-        cw, ch = curr_p.size
-        # 将进度转换为对角线位置 (从右下角 cw+ch 退到 0)
-        c = (cw + ch) * (1.0 - ease)
-        
-        # 绘制 curr_p 的可见区域蒙版
-        mask = Image.new("L", (cw, ch), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        
-        pts = [(0, 0)]
-        if c > cw:
-            pts.extend([(cw, 0), (cw, c - cw)])
-        else:
-            pts.append((c, 0))
-            
-        if c > ch:
-            pts.extend([(c - ch, ch), (0, ch)])
-        else:
-            pts.append((0, c))
-            
-        draw_mask.polygon(pts, fill=255)
-        # 将当前页面内容通过蒙版贴上去
-        frame.paste(curr_p, curr_pos, mask)
-        
-        # 绘制卷曲的背面和阴影
-        if ease > 0 and ease < 1:
-            draw = ImageDraw.Draw(frame, "RGBA")
-            P1 = (cw, c - cw) if c > cw else (c, 0)
-            P2 = (c - ch, ch) if c > ch else (0, c)
-            P3 = (c - ch, c - cw) # 折叠过来的右下角坐标
-            
-            # 映射到画面绝对坐标
-            cx, cy = curr_pos
-            P1 = (P1[0] + cx, P1[1] + cy)
-            P2 = (P2[0] + cx, P2[1] + cy)
-            P3 = (P3[0] + cx, P3[1] + cy)
-            
-            # 投影 (稍微向右下偏移)
-            shadow_offset = 15
-            draw.polygon([P1, P2, (P3[0] + shadow_offset, P3[1] + shadow_offset)], fill=(0, 0, 0, 50))
-            
-            # 卷起的纸张背面
-            draw.polygon([P1, P2, P3], fill=(245, 245, 245, 255))
-            
-            # 折叠线的高光/阴影
-            draw.line([P1, P2], fill=(200, 200, 200, 180), width=2)
+        # 6. 渐变融入 (Smooth Cross-fade)
+        p1 = apply_photo_opacity(curr_p, 1.0 - s_ease)
+        frame.paste(p1, curr_pos, p1)
+        p2 = apply_photo_opacity(next_p, s_ease)
+        frame.paste(p2, next_pos, p2)
 
 
 def draw_stickers(frame: Image.Image, frame_idx: int, effect: str):
     if effect == "petals":
         draw = ImageDraw.Draw(frame)
         for i in range(15):
-            # 伪随机下落轨迹
             x = (i * 137 + frame_idx * (2 + i % 3)) % V_WIDTH
             y = ((i * 211 + frame_idx * (3 + i % 4)) % (V_HEIGHT + 100)) - 50
             size = 10 + (i % 8)
@@ -210,7 +179,6 @@ def draw_stickers(frame: Image.Image, frame_idx: int, effect: str):
     elif effect == "vintage_border":
         draw = ImageDraw.Draw(frame, "RGBA")
         bw = 20
-        # 画一个简单的深色半透明内边框
         draw.rectangle([0, 0, V_WIDTH, bw], fill=(50, 30, 20, 100))
         draw.rectangle([0, V_HEIGHT-bw, V_WIDTH, V_HEIGHT], fill=(50, 30, 20, 100))
         draw.rectangle([0, 0, bw, V_HEIGHT], fill=(50, 30, 20, 100))
@@ -241,13 +209,14 @@ def draw_stickers(frame: Image.Image, frame_idx: int, effect: str):
 def generate_video_frames(slides: list[SlideData], style: Any, fps: int = 30) -> Generator[Image.Image, None, None]:
     """
     生成短视频全部 30fps 帧:
-    - 背景: 统一向左侧滑 (Slide Left)
-    - 文字: 淡入淡出 (Cross-fade) 或 向上浮现 (Slide Up)
-    - 中间图片: 翻页、飞入、融入融出、翻折等多样过度动效
+    - 背景: 静态纸张古风背景
+    - 文字: 淡入淡出 (Cross-fade)
+    - 中间图片: 更加自然舒缓的书本翻页 (Book Flip) 转场
     """
     num_slides = len(slides)
-    frames_per_slide = 105   # 每张幻灯片静止帧数（配合 23s 总时长）
-    transition_frames = 30   # 转场帧数：30帧=1秒，翻页更慢更优雅
+    frames_per_slide = 120   # 每张幻灯片静止+转场帧数
+    transition_frames = 48   # 转场帧数提升至 48 帧 = 1.6 秒（更优雅自然、不紧迫）
+
     bg_paper = load_paper_background()
     
     
@@ -532,9 +501,9 @@ def compile_collection_video(
         progress_callback(75, f"全部 {len(all_slides)} 帧画面已渲染完成，开始进行音视频压制...")
 
     # 4. 计算视频总时长与帧数
-    # 每张 Slide 展示 75 帧 (2.5s) + 转场 25 帧 (0.83s) -> 100 帧/Slide
+    # 每张 Slide 展示 72 帧 (2.4s) + 优雅转场 48 帧 (1.6s) -> 120 帧/Slide (4.0s/ Slide)
     fps = 30
-    total_frames = len(all_slides) * 100
+    total_frames = len(all_slides) * 120
     total_seconds = total_frames / float(fps)
 
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
@@ -605,15 +574,15 @@ def compile_collection_video(
             curr_slide = all_slides[i]
             next_slide = all_slides[(i + 1) % num_slides]
 
-            # 静态帧 75 帧
-            for _ in range(75):
+            # 静态帧 72 帧 (2.4 秒)
+            for _ in range(72):
                 frame = curr_slide.full_slide.copy()
                 proc.stdin.write(frame.tobytes())
                 global_frame_idx += 1
 
-            # 转场帧 25 帧
-            for k in range(25):
-                ease = (k + 1) / 26.0
+            # 舒缓优雅的书本翻页转场 48 帧 (1.6 秒)
+            for k in range(48):
+                ease = (k + 1) / 49.0
                 frame = bg_paper.copy()
                 curr_t = apply_photo_opacity(curr_slide.text_canvas, 1.0 - ease)
                 next_t = apply_photo_opacity(next_slide.text_canvas, ease)
@@ -622,6 +591,7 @@ def compile_collection_video(
                 draw_photo_transition(frame, i, curr_slide, next_slide, ease, style.transition_style)
                 proc.stdin.write(frame.tobytes())
                 global_frame_idx += 1
+
 
             if progress_callback and (i % 2 == 0):
                 pct = 75 + int((i / num_slides) * 20)
