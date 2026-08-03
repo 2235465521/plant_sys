@@ -109,6 +109,7 @@ tasks_lock = threading.Lock()
 class SemanticGenerateRequest(BaseModel):
     prompt: str
     style_preset: str = "ancient"
+    model_mode: str = "flash"  # "flash" | "pro"
 
 
 def _update_task(task_id: str, **kwargs):
@@ -117,15 +118,16 @@ def _update_task(task_id: str, **kwargs):
             video_tasks[task_id].update(kwargs)
 
 
-def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str):
+def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, model_mode: str = "flash"):
     """后台工作线程：执行语义解析 -> 候选植物检索 -> 视频渲染合成"""
     try:
-        _update_task(task_id, status="processing", progress=5, step="正在进行 LLM 意图解析与数据库打分匹配...")
+        model_title = "DeepSeek-Reasoner (Pro)" if model_mode == "pro" else "DeepSeek-Flash"
+        _update_task(task_id, status="processing", progress=5, step=f"正在通过 [{model_title}] 进行自然语言意图解析...")
         
         from app.semantic_search import search_plants_for_video
         from app.video_automation.video_compiler import compile_plant_video, compile_collection_video
 
-        search_result = search_plants_for_video(prompt)
+        search_result = search_plants_for_video(prompt, model_mode=model_mode)
         mode = search_result.get("mode", "single")
         topic_title = search_result.get("topic_title") or prompt[:10]
         plants = search_result.get("plants") or []
@@ -144,7 +146,7 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str):
         _update_task(
             task_id,
             progress=15,
-            step=f"语义识别为【{'单植物' if mode == 'single' and len(plants) == 1 else '专题合集'}】，成功精选 {len(plants)} 种植物: {', '.join(plant_names[:5])}{'...' if len(plants) > 5 else ''}",
+            step=f"【{model_title}】识别为【{'单植物' if mode == 'single' and len(plants) == 1 else '专题合集'}】，成功精选 {len(plants)} 种植物: {', '.join(plant_names[:5])}{'...' if len(plants) > 5 else ''}",
             matched_plants=plant_names
         )
 
@@ -205,7 +207,7 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str):
             status="completed",
             progress=100,
             step="生成成功！",
-            message=f"【{topic_title}】视频已为您打造完成！涵盖 {len(plants)} 种精选植物。",
+            message=f"【{topic_title}】视频已由 [{model_title}] 为您打造完成！涵盖 {len(plants)} 种精选植物。",
             video_url=video_url
         )
 
@@ -220,7 +222,7 @@ def start_semantic_video_generation(
     current_user: Annotated[PlantAdminUser, Depends(get_current_user)]
 ):
     """
-    提交自然语言 Prompt 生成单植物或多植物合集视频（异步任务队列）。
+    提交自然语言 Prompt 生成单植物或多植物合集视频（支持 model_mode: "flash" | "pro"）。
     """
     if not req.prompt or not req.prompt.strip():
         raise HTTPException(status_code=400, detail="提示词不能为空")
@@ -242,7 +244,7 @@ def start_semantic_video_generation(
 
     t = threading.Thread(
         target=_async_semantic_video_worker,
-        args=(task_id, req.prompt.strip(), req.style_preset),
+        args=(task_id, req.prompt.strip(), req.style_preset, req.model_mode),
         daemon=True
     )
     t.start()
@@ -250,8 +252,9 @@ def start_semantic_video_generation(
     return {
         "success": True,
         "task_id": task_id,
-        "message": "视频生成任务已提交，后台处理中..."
+        "message": f"视频生成任务已提交 ({req.model_mode.upper()} 模式)，后台处理中..."
     }
+
 
 
 @router.get("/task-status/{task_id}")

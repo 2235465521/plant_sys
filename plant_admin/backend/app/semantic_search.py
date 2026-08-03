@@ -195,9 +195,10 @@ def query_semantic_similarity(query: str, allowed_ids: list[int] = None) -> list
         conn.close()
 
 
-def fetch_video_intent(prompt_text: str) -> dict:
+def fetch_video_intent(prompt_text: str, model_mode: str = "flash") -> dict:
     """
     使用 LLM 分析用户的视频生成提示词，提取模式、目标数量、专题标题及数据库检索参数。
+    支持通过 model_mode="pro" 切换为 DeepSeek-Reasoner/Pro 强推理模型。
     """
     system_prompt = """你是一个专业的中草药与视频创作意图解析专家。用户输入了一个视频生成提示词。
 请帮我分析该提示词所表达的视频创作意图，并严格提取为 JSON 控制指令：
@@ -227,8 +228,10 @@ def fetch_video_intent(prompt_text: str) -> dict:
 }"""
 
     api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    target_model = "deepseek-reasoner" if (model_mode and model_mode.lower() == "pro") else "deepseek-v4-flash"
+    
     payload = {
-        "model": "deepseek-v4-flash",
+        "model": target_model,
         "messages": [
             {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
             {"role": "user", "content": f"视频生成提示词：\"{prompt_text}\"\n{system_prompt}"}
@@ -247,13 +250,16 @@ def fetch_video_intent(prompt_text: str) -> dict:
             },
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             resp_bytes = response.read()
             resp_data = json.loads(resp_bytes.decode("utf-8"))
             content_str = resp_data["choices"][0]["message"]["content"]
+            # 清理可能有思维链前缀的返回，确保纯 JSON 解析
+            if "{" in content_str:
+                content_str = content_str[content_str.find("{"):content_str.rfind("}")+1]
             return json.loads(content_str)
     except Exception as e:
-        print(f"LLM 视频意图解析异常: {e}")
+        print(f"LLM 视频意图解析异常 (model={target_model}): {e}")
         return {
             "mode": "collection" if ("十" in prompt_text or "八" in prompt_text or "类" in prompt_text or "合集" in prompt_text) else "single",
             "target_count": 8 if ("十" in prompt_text or "合集" in prompt_text) else 1,
@@ -268,11 +274,11 @@ def fetch_video_intent(prompt_text: str) -> dict:
         }
 
 
-def search_plants_for_video(prompt_text: str) -> dict:
+def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict:
     """
     根据自然语言视频提示词，解析意图并从数据库中检索打分最匹配的植物列表（包含柔性降级截取）。
     """
-    intent = fetch_video_intent(prompt_text)
+    intent = fetch_video_intent(prompt_text, model_mode=model_mode)
     mode = intent.get("mode", "single")
     target_count = int(intent.get("target_count", 1 if mode == "single" else 8))
     target_count = max(1, min(target_count, 10))
@@ -316,6 +322,8 @@ def search_plants_for_video(prompt_text: str) -> dict:
         "target_count": target_count,
         "topic_title": topic_title,
         "style_preset": style_preset,
+        "model_mode": model_mode,
         "plants": matched_plants
     }
+
 

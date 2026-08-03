@@ -169,13 +169,19 @@ export interface VideoTaskStatus {
   created_at: number;
 }
 
-export async function startSemanticVideoGeneration(prompt: string, style_preset: string = "ancient"): Promise<{ success: boolean; task_id: string; message: string }> {
+export async function startSemanticVideoGeneration(
+  prompt: string,
+  style_preset: string = "ancient",
+  model_mode: string = "flash"
+): Promise<{ success: boolean; task_id: string; message: string }> {
   const res = await api.post<{ success: boolean; task_id: string; message: string }>("/video-automation/semantic-generate", {
     prompt,
-    style_preset
+    style_preset,
+    model_mode
   });
   return res.data;
 }
+
 
 export async function getSemanticVideoTaskStatus(taskId: string): Promise<VideoTaskStatus> {
   const res = await api.get<VideoTaskStatus>(`/video-automation/task-status/${taskId}`);

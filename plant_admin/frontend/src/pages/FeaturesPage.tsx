@@ -20,8 +20,10 @@ import {
   message,
   Popconfirm,
   Pagination,
-  Progress
+  Progress,
+  Switch
 } from "antd";
+
 import {
   api,
   Plant,
@@ -83,6 +85,7 @@ function getSvgFallback(name: string, text = "暂无图片"): string {
 function AiVideoStudioCard() {
   const [prompt, setPrompt] = useState("");
   const [stylePreset, setStylePreset] = useState("ancient");
+  const [useProModel, setUseProModel] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -123,7 +126,11 @@ function AiVideoStudioCard() {
     setTaskStatus(null);
     setModalOpen(true);
     try {
-      const res = await startSemanticVideoGeneration(targetPrompt, stylePreset);
+      const res = await startSemanticVideoGeneration(
+        targetPrompt,
+        stylePreset,
+        useProModel ? "pro" : "flash"
+      );
       if (res.success && res.task_id) {
         setActiveTaskId(res.task_id);
       } else {
@@ -158,14 +165,31 @@ function AiVideoStudioCard() {
             输入自然语言指令，AI 将通过 DeepSeek 语义解析匹配植物，一键为您自动化生成古风画卷或专题合集短视频。
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-on-surface-variant font-medium">视觉画风：</span>
-          <Select value={stylePreset} onChange={setStylePreset} size="small" style={{ width: 130 }}>
-            <Option value="ancient">古风宣纸画卷</Option>
-            <Option value="modern">现代简约风格</Option>
-          </Select>
+        <div className="flex flex-wrap items-center gap-4 shrink-0">
+          <div className="flex items-center gap-1.5 bg-surface/40 px-3 py-1 rounded-xl border border-primary/20">
+            <span className="text-xs font-medium text-on-surface-variant flex items-center gap-1">
+              <span className="material-symbols-outlined text-[16px] text-amber-500">psychology</span>
+              Pro 强推理模型：
+            </span>
+            <Switch
+              checked={useProModel}
+              onChange={setUseProModel}
+              checkedChildren="Pro"
+              unCheckedChildren="Flash"
+              size="small"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-on-surface-variant font-medium">视觉画风：</span>
+            <Select value={stylePreset} onChange={setStylePreset} size="small" style={{ width: 120 }}>
+              <Option value="ancient">古风宣纸画卷</Option>
+              <Option value="modern">现代简约风格</Option>
+            </Select>
+          </div>
         </div>
       </div>
+
 
       <div className="space-y-3">
         <div className="flex gap-2">
