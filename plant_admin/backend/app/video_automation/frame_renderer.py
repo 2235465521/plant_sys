@@ -55,7 +55,27 @@ def get_pinyin_for_name(name: str) -> str:
 
 
 def get_system_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    """获取 Windows 系统默认中文字体（微软雅黑/黑体/宋体）。"""
+    """
+    获取系统与全平台通用中文字体。
+    优先加载项目自带的高保真全字符集中文字体 backend/data/video_assets/fonts/1.ttf 或 2.ttf，
+    100% 避免在 Linux/Windows 服务器上回退到 Pillow 默认位图字体导致豆腐块方块 (tofu/XXXX) 乱码。
+    """
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    font_1 = base_dir / "data" / "video_assets" / "fonts" / "1.ttf"
+    font_2 = base_dir / "data" / "video_assets" / "fonts" / "2.ttf"
+    
+    if font_1.exists():
+        try:
+            return ImageFont.truetype(str(font_1.resolve()), size)
+        except Exception:
+            pass
+            
+    if font_2.exists():
+        try:
+            return ImageFont.truetype(str(font_2.resolve()), size)
+        except Exception:
+            pass
+
     candidates = []
     if bold:
         candidates.extend([
@@ -63,6 +83,9 @@ def get_system_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
             "C:\\Windows\\Fonts\\simhei.ttf",  # 黑体
         ])
     candidates.extend([
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
         "C:\\Windows\\Fonts\\msyh.ttc",      # 微软雅黑 Regular
         "C:\\Windows\\Fonts\\simsun.ttc",     # 宋体
         "C:\\Windows\\Fonts\\FZSTK.TTF",      # 方正舒体
@@ -158,7 +181,10 @@ def load_paper_background() -> Image.Image:
         except Exception:
             pass
             
-    return Image.new("RGB", (V_WIDTH, V_HEIGHT), (245, 240, 230))
+    img = Image.new("RGB", (V_WIDTH, V_HEIGHT), (245, 238, 220))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([40, 40, V_WIDTH - 40, V_HEIGHT - 40], outline=(200, 180, 150), width=3)
+    return img
 
 
 def crop_bottom_watermark(img: Image.Image, percent: float = 0.10) -> Image.Image:
@@ -173,22 +199,19 @@ def crop_bottom_watermark(img: Image.Image, percent: float = 0.10) -> Image.Imag
 def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]:
     """
     制作中间的植物照片卡片 RGBA 图层（含圆角与精美古风规则双边框）。
-    改进项：
-    1. 相同布局的照片尺寸统一为 880x680，实现极致视觉对齐与质感；
-    2. 垂直位置下移至 y=360，给顶部标题预留舒朗空间；
-    3. 智能自适应 Fill/Cover，彻底消除竖图两侧过大空白与拉伸留白。
     """
     card_w = 880
     card_h = 680
     card_x = (V_WIDTH - card_w) // 2  # 100
     card_y = 360                     # 下移至 360，避免挤压顶部
     
-    if not img_path or not os.path.exists(img_path):
+    real_img_path = resolve_local_img_path(img_path) if img_path else ""
+    if not real_img_path or not os.path.exists(real_img_path):
         empty = Image.new("RGBA", (card_w, card_h), (255, 255, 255, 0))
         return empty, (card_x, card_y)
 
     try:
-        orig = Image.open(img_path).convert("RGBA")
+        orig = Image.open(real_img_path).convert("RGBA")
         orig = crop_bottom_watermark(orig, percent=0.10)
     except Exception:
         empty = Image.new("RGBA", (card_w, card_h), (255, 255, 255, 0))
@@ -224,20 +247,22 @@ def create_foreground_card(img_path: str) -> tuple[Image.Image, tuple[int, int]]
 
 
 def create_circular_card(img_path: str, size: int = 650) -> tuple[Image.Image, tuple[int, int]]:
-    """制作封面专属的圆形带白框照片卡片 RGBA 图层（自动裁切底部 10% 水印）。"""
+    """制作封面圆形古风花窗植物照片图层。"""
     fg_x = (V_WIDTH - size) // 2
-    fg_y = 420
+    fg_y = 440
     
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    if not img_path or not os.path.exists(img_path):
+    real_img_path = resolve_local_img_path(img_path) if img_path else ""
+    if not real_img_path or not os.path.exists(real_img_path):
+        canvas = Image.new("RGBA", (size, size), (255, 255, 255, 0))
         return canvas, (fg_x, fg_y)
-
+        
     try:
-        orig = Image.open(img_path).convert("RGBA")
+        orig = Image.open(real_img_path).convert("RGBA")
         orig = crop_bottom_watermark(orig, percent=0.10)
     except Exception:
+        canvas = Image.new("RGBA", (size, size), (255, 255, 255, 0))
         return canvas, (fg_x, fg_y)
-    
+        
     orig_w, orig_h = orig.size
     scale = max(size / orig_w, size / orig_h)
     new_w = int(orig_w * scale)
@@ -260,17 +285,31 @@ def create_circular_card(img_path: str, size: int = 650) -> tuple[Image.Image, t
 
 
 def resolve_local_img_path(server_path: str) -> str:
-    """将虚拟路径解析为本地绝对路径。"""
+    """将虚拟 API/Web 图片路径解析为物理磁盘绝对路径，支持多种前缀与绝对/相对路径。"""
     if not server_path:
         return ""
+    
+    server_path = str(server_path).strip()
+    if os.path.exists(server_path):
+        return server_path
+
     base_dir = Path(__file__).resolve().parent.parent.parent
-    prefix = "/api/media/plants/"
-    if server_path.startswith(prefix):
-        sub_path = server_path[len(prefix):]
+    clean_p = server_path.replace("\\", "/")
+
+    if "/plants/" in clean_p:
+        sub_path = clean_p.split("/plants/")[-1]
         resolved = base_dir / "data" / "plant_images" / sub_path
         if resolved.exists():
             return str(resolved.resolve())
+
+    fname = Path(clean_p).name
+    if fname:
+        for p in (base_dir / "data" / "plant_images").rglob(fname):
+            if p.exists():
+                return str(p.resolve())
+
     return ""
+
 
 
 def get_6_slide_images(plant_data: dict[str, Any]) -> list[SlideData]:
@@ -578,10 +617,13 @@ def get_condensed_slide_images(plant_data: dict, chapter_badge: str = "01/08") -
     slides: list[SlideData] = []
     
     paths = plant_data.get("image_server_paths") or []
-    def get_img_path(idx: int):
-        if idx < len(paths) and os.path.exists(paths[idx]):
-            return paths[idx]
-        return paths[0] if (paths and os.path.exists(paths[0])) else None
+    local_paths = [resolve_local_img_path(p) for p in paths if resolve_local_img_path(p)]
+
+    def get_img_path(idx: int) -> str:
+        if not local_paths:
+            return ""
+        return local_paths[idx % len(local_paths)]
+
 
     font_badge = get_system_font(32, bold=True)
     font_vname = get_art_font(84)
