@@ -274,9 +274,31 @@ def fetch_video_intent(prompt_text: str, model_mode: str = "flash") -> dict:
         }
 
 
+STOP_WORDS = {
+    "做一条", "做一个", "生成", "制作", "关于", "介绍", "视频", "合集", "短视频", "植物",
+    "十大", "五大", "八大", "名贵", "常用", "大盘点", "展示", "想做", "帮我", "请", "的"
+}
+
+
+def clean_search_keywords(keywords: list[str]) -> list[str]:
+    """清洗关键词，过滤停用词与泛化表达。"""
+    cleaned = []
+    for kw in keywords:
+        k = kw.strip()
+        if not k:
+            continue
+        for sw in STOP_WORDS:
+            k = k.replace(sw, "")
+        k = k.strip()
+        if k and len(k) >= 1:
+            cleaned.append(k)
+    return cleaned
+
+
 def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict:
     """
-    根据自然语言视频提示词，解析意图并从数据库中检索打分最匹配的植物列表（包含柔性降级截取）。
+    根据自然语言视频提示词，解析意图并从数据库中检索打分最匹配的植物列表（包含多级智能降级保底）。
+    已彻底解决词条清洗与泛化 Prompt 匹配不到植物的问题。
     """
     intent = fetch_video_intent(prompt_text, model_mode=model_mode)
     mode = intent.get("mode", "single")
@@ -285,37 +307,138 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
     topic_title = intent.get("topic_title") or prompt_text[:12]
     style_preset = intent.get("style_preset", "ancient")
 
-    # 借用相似度计算逻辑
-    scores = query_semantic_similarity(prompt_text)
-    
     from app.video_automation.db_reader import get_plant_data_for_video
+    from app.database import connect_mysql
 
-    matched_plants = []
-    if scores:
-        # 取 Top-N 植物 ID
-        top_pids = [item[0] for item in scores[:target_count]]
-        for pid in top_pids:
-            pdata = get_plant_data_for_video(pid)
-            if pdata:
-                matched_plants.append(pdata)
+    harvest_months = intent.get("harvest_months") or []
+    food_therapy_months = intent.get("food_therapy_months") or []
+    habitats = intent.get("habitats") or []
+    rankings = intent.get("rankings") or []
+    regions = intent.get("regions") or []
+    raw_keywords = intent.get("keywords") or []
 
-    # 降级备用：如果打分没有匹配到任何植物，回退模糊查询前 N 条植物
-    if not matched_plants:
-        from app.database import connect_mysql
+    cleaned_kws = clean_search_keywords(raw_keywords)
+    if not cleaned_kws and prompt_text:
+        raw_clean = prompt_text
+        for sw in STOP_WORDS:
+            raw_clean = raw_clean.replace(sw, "")
+        raw_clean = raw_clean.strip()
+        if raw_clean:
+            cleaned_kws.append(raw_clean)
+
+    matched_pids: list[int] = []
+
+    def add_pids(pids: list[int]):
+        for pid in pids:
+            if pid not in matched_pids:
+                matched_pids.append(pid)
+
+    # ===== 阶段 1: 属性与标签关联精准匹配 =====
+    # (1) 生境分类匹配
+    if habitats:
         conn = connect_mysql()
         try:
+            ph = ",".join(["%s"] * len(habitats))
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id FROM plant_classification_import WHERE vernacular_name LIKE %s LIMIT %s",
-                    (f"%{prompt_text}%", target_count)
-                )
-                rows = cur.fetchall() or []
-                for r in rows:
-                    pdata = get_plant_data_for_video(r["id"])
-                    if pdata:
-                        matched_plants.append(pdata)
+                cur.execute(f"SELECT DISTINCT plant_id FROM plant_habitats WHERE habitat_type IN ({ph})", list(habitats))
+                add_pids([r["plant_id"] for r in cur.fetchall() or []])
         finally:
             conn.close()
+
+    # (2) 排行榜分类匹配
+    if rankings:
+        conn = connect_mysql()
+        try:
+            ph = ",".join(["%s"] * len(rankings))
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT DISTINCT plant_id FROM plant_rankings WHERE ranking_type IN ({ph})", list(rankings))
+                add_pids([r["plant_id"] for r in cur.fetchall() or []])
+        finally:
+            conn.close()
+
+    # (3) 产地区域匹配
+    if regions:
+        conn = connect_mysql()
+        try:
+            conds = []
+            reg_params = []
+            for r in regions:
+                conds.append("region_name LIKE %s OR combo_name LIKE %s")
+                reg_params.extend([f"%{r}%", f"%{r}%"])
+            sql_where = " OR ".join(conds)
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT DISTINCT plant_id FROM plant_regions WHERE {sql_where}", reg_params)
+                add_pids([r["plant_id"] for r in cur.fetchall() or []])
+        finally:
+            conn.close()
+
+    # (4) 清洗后的关键词模糊匹配
+    if cleaned_kws:
+        conn = connect_mysql()
+        try:
+            conds = []
+            sql_params = []
+            for kw in cleaned_kws:
+                kw_like = f"%{kw}%"
+                conds.append("(vernacular_name LIKE %s OR alternative_names_zh LIKE %s OR morphology_text LIKE %s OR medicinal_shape LIKE %s)")
+                sql_params.extend([kw_like, kw_like, kw_like, kw_like])
+            sql_where = " OR ".join(conds)
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT id FROM plant_classification_import WHERE {sql_where} LIMIT 20", sql_params)
+                add_pids([r["id"] for r in cur.fetchall() or []])
+        finally:
+            conn.close()
+
+    # ===== 阶段 2: 优先按药用/药食同源特征智能补充匹配 =====
+    if len(matched_pids) < target_count:
+        conn = connect_mysql()
+        try:
+            needed = target_count - len(matched_pids)
+            exclude_clause = ""
+            params = []
+            if matched_pids:
+                ph = ",".join(["%s"] * len(matched_pids))
+                exclude_clause = f"AND id NOT IN ({ph})"
+                params.extend(matched_pids)
+            params.append(needed * 2)
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT id FROM plant_classification_import "
+                    f"WHERE (is_medicinal_food_homologous = '是' OR medicinal_part IS NOT NULL OR morphology_text IS NOT NULL) "
+                    f"{exclude_clause} "
+                    f"ORDER BY id ASC LIMIT %s",
+                    params
+                )
+                add_pids([r["id"] for r in cur.fetchall() or []])
+        finally:
+            conn.close()
+
+    # ===== 阶段 3: 全局通用保底 =====
+    if len(matched_pids) < target_count:
+        conn = connect_mysql()
+        try:
+            needed = target_count - len(matched_pids)
+            exclude_clause = ""
+            params = []
+            if matched_pids:
+                ph = ",".join(["%s"] * len(matched_pids))
+                exclude_clause = f"WHERE id NOT IN ({ph})"
+                params.extend(matched_pids)
+            params.append(needed)
+
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT id FROM plant_classification_import {exclude_clause} ORDER BY id ASC LIMIT %s", params)
+                add_pids([r["id"] for r in cur.fetchall() or []])
+        finally:
+            conn.close()
+
+    # 读取完整的植物数据
+    matched_plants = []
+    for pid in matched_pids[:target_count]:
+        pdata = get_plant_data_for_video(pid)
+        if pdata:
+            matched_plants.append(pdata)
 
     return {
         "mode": mode,
@@ -325,5 +448,6 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
         "model_mode": model_mode,
         "plants": matched_plants
     }
+
 
 
