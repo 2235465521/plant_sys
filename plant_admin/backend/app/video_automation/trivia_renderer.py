@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Any, Optional
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from app.video_automation.frame_renderer import SlideData, V_WIDTH, V_HEIGHT
+from app.video_automation.frame_renderer import SlideData, V_WIDTH, V_HEIGHT, get_system_font
 from app.video_automation.trivia_script import TriviaScript, generate_trivia_script
 
 TRIVIA_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "video_assets" / "trivia"
+FONTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "video_assets" / "fonts"
 
 
 def load_trivia_bg() -> Image.Image:
@@ -33,57 +34,84 @@ def load_trivia_bg() -> Image.Image:
 
 
 def get_banner_font(size: int) -> ImageFont.FreeTypeFont:
-    """获取大标题艺术字体（华文琥珀 > 幼圆 > 微软雅黑粗体）"""
+    """
+    获取大标题艺术字体（华文琥珀 > 幼圆 > 仓库自带2.ttf > 微软雅黑粗体 > Linux CJK > 1.ttf）。
+    确保在 Linux/Windows 生产服务器上绝不回退到默认位图字体产生豆腐块乱码！
+    """
+    f_2 = FONTS_DIR / "2.ttf"
+    f_1 = FONTS_DIR / "1.ttf"
     candidates = [
         "C:\\Windows\\Fonts\\STHUPO.TTF",
         "C:\\Windows\\Fonts\\SIMYOU.TTF",
+        str(f_2.resolve()) if f_2.exists() else "",
         "C:\\Windows\\Fonts\\msyhbd.ttc",
         "C:\\Windows\\Fonts\\simhei.ttf",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        str(f_1.resolve()) if f_1.exists() else "",
     ]
     for c in candidates:
-        if os.path.exists(c):
+        if c and os.path.exists(c):
             try:
                 return ImageFont.truetype(c, size)
             except Exception:
                 pass
-    return ImageFont.load_default()
+    return get_system_font(size, bold=True)
 
 
 def get_body_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
-    """获取正文爆款字体（幼圆 > 微软雅黑粗体 > 1.ttf）"""
+    """
+    获取正文爆款字体（幼圆 > 微软雅黑粗体 > 仓库自带1.ttf > 2.ttf > Linux CJK）。
+    """
+    f_1 = FONTS_DIR / "1.ttf"
+    f_2 = FONTS_DIR / "2.ttf"
     candidates = [
         "C:\\Windows\\Fonts\\SIMYOU.TTF",
-        "C:\\Windows\\Fonts\\msyhbd.ttc",
+        "C:\\Windows\\Fonts\\msyhbd.ttc" if bold else "C:\\Windows\\Fonts\\msyh.ttc",
+        str(f_1.resolve()) if f_1.exists() else "",
+        str(f_2.resolve()) if f_2.exists() else "",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "C:\\Windows\\Fonts\\simhei.ttf",
     ]
     for c in candidates:
-        if os.path.exists(c):
+        if c and os.path.exists(c):
             try:
                 return ImageFont.truetype(c, size)
             except Exception:
                 pass
-    f_1 = Path(__file__).resolve().parent.parent.parent / "data" / "video_assets" / "fonts" / "1.ttf"
-    if f_1.exists():
-        try:
-            return ImageFont.truetype(str(f_1), size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+    return get_system_font(size, bold=bold)
 
 
 def get_latin_pinyin_font(size: int) -> ImageFont.FreeTypeFont:
-    """获取带调号拼音字体（Arial / Segoe UI / 微软雅黑）"""
+    """获取带调号拼音字体（Arial / Segoe UI / 微软雅黑 / Linux DejaVu / 正文字体）"""
     candidates = [
         "C:\\Windows\\Fonts\\arial.ttf",
         "C:\\Windows\\Fonts\\segoeui.ttf",
         "C:\\Windows\\Fonts\\msyh.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     ]
     for c in candidates:
-        if os.path.exists(c):
+        if c and os.path.exists(c):
             try:
                 return ImageFont.truetype(c, size)
             except Exception:
                 pass
-    return get_body_font(size)
+    return get_body_font(size, bold=False)
 
 
 def draw_text_with_outline(
@@ -153,8 +181,11 @@ def draw_cloud_banner(
     )
 
 
+NO_LINE_START_CHARS = set("，。、；：？！）》’”」』·")
+
+
 def wrap_text_cjk(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
-    """中文自然排版折行算法，避头尾法则"""
+    """中文自然排版折行算法，严格遵循避头尾法则 (Kinsoku Shori)"""
     if not text:
         return []
     lines: list[str] = []
@@ -164,9 +195,15 @@ def wrap_text_cjk(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> li
         if w <= max_width:
             curr += ch
         else:
-            if curr:
+            # 避头尾：如果当前字符不可置于行首，强制挂在当前行尾
+            if ch in NO_LINE_START_CHARS:
+                curr += ch
                 lines.append(curr)
-            curr = ch
+                curr = ""
+            else:
+                if curr:
+                    lines.append(curr)
+                curr = ch
     if curr:
         lines.append(curr)
     return lines
@@ -371,7 +408,11 @@ def render_trivia_slides(
     s1_draw.text((py_x, py_y), script.pinyin, fill=(255, 255, 255), font=f_py, anchor="mm")
 
     # 植物中文大名（粗体大红带白描边与红晕）
-    f_name = get_banner_font(128)
+    f_name_size = 128
+    f_name = get_banner_font(f_name_size)
+    while f_name.getlength(script.plant_name) > 860 and f_name_size > 64:
+        f_name_size -= 8
+        f_name = get_banner_font(f_name_size)
     name_x, name_y = V_WIDTH // 2, 1200
     for dx in range(-6, 7):
         for dy in range(-6, 7):
@@ -418,12 +459,26 @@ def render_trivia_slides(
         tc = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
         draw_cloud_banner(tc, title, y_pos=180, font_size=86)
 
-        # 正文排版
-        f_content = get_body_font(52, bold=True)
+        # 正文排版：针对 50~75 字多行图文卡片智能动态字号与行距
+        f_size = 48
+        f_content = get_body_font(f_size, bold=True)
         wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
+
+        if len(wrapped_lines) > 4:
+            f_size = 44
+            f_content = get_body_font(f_size, bold=True)
+            wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
+            line_height = 70
+        elif len(wrapped_lines) <= 2:
+            f_size = 52
+            f_content = get_body_font(f_size, bold=True)
+            wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
+            line_height = 80
+        else:
+            line_height = 74
+
         draw_c = ImageDraw.Draw(tc)
-        y_text = 1080
-        line_height = 84
+        y_text = 1060
 
         for line in wrapped_lines:
             draw_text_with_outline(
@@ -450,11 +505,49 @@ def render_trivia_slides(
     # ------------------ SLIDE 5: 全屏美图收尾 ------------------
     tc5 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
     d5 = ImageDraw.Draw(tc5)
-    f_end = get_banner_font(96)
+    
+    left_str = f"《{script.plant_name}》"
+    right_str = "草木有灵"
+    gap_str = "    "
+    full_str = f"{left_str}{gap_str}{right_str}"
+
+    f_end_size = 92
+    f_end = get_banner_font(f_end_size)
+    # 动态防溢出：确保标题不超出 960px 宽度
+    while f_end.getlength(full_str) > 960 and f_end_size > 48:
+        f_end_size -= 4
+        f_end = get_banner_font(f_end_size)
+
+    # 精确计算水平居中及中间黄金圆点坐标（避免任何字体缺少·字符导致方块乱码）
+    w_left = f_end.getlength(left_str)
+    w_gap = f_end.getlength(gap_str)
+    w_right = f_end.getlength(right_str)
+    total_w = w_left + w_gap + w_right
+    start_x = (V_WIDTH - total_w) / 2
+    y_pos = 1720
+
+    # 绘制左《植物名》
     draw_text_with_outline(
-        d5, (V_WIDTH // 2, 1720), f"《{script.plant_name}》· 草木有灵", f_end,
+        d5, (int(start_x + w_left / 2), y_pos), left_str, f_end,
         fill=(255, 235, 50), outline_color=(50, 30, 10), outline_width=5, anchor="mm"
     )
+    # 绘制中间精致立体金点
+    dot_x = int(start_x + w_left + w_gap / 2)
+    dot_r = max(5, int(f_end_size * 0.08))
+    d5.ellipse(
+        (dot_x - dot_r - 4, y_pos - dot_r - 4, dot_x + dot_r + 4, y_pos + dot_r + 4),
+        fill=(50, 30, 10)
+    )
+    d5.ellipse(
+        (dot_x - dot_r, y_pos - dot_r, dot_x + dot_r, y_pos + dot_r),
+        fill=(255, 235, 50)
+    )
+    # 绘制右 草木有灵
+    draw_text_with_outline(
+        d5, (int(start_x + w_left + w_gap + w_right / 2), y_pos), right_str, f_end,
+        fill=(255, 235, 50), outline_color=(50, 30, 10), outline_width=5, anchor="mm"
+    )
+
     pc5, pos5 = create_photo_card(get_img(4), w=1020, h=1300, corner_radius=28)
     # 将收尾大图稍微上移居中
     pos5 = (pos5[0], 240)

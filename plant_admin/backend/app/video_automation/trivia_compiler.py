@@ -75,24 +75,48 @@ def generate_narration_chunks(
     voice: str = VOICE_DEFAULT
 ) -> list[tuple[str, float]]:
     """
-    为 5 幕生成对应的语音朗读词并获取各自的时长（全片严格控制在 20 秒）：
-    Slide 1: 封面介绍 (~2.2s)
-    Slide 2: 形态特征 (~3.5s)
-    Slide 3: 植物趣闻 (~3.5s)
-    Slide 4: 适生范围 (~3.5s)
-    Slide 5: 美图收尾 (~2.2s)
+    为 5 幕生成对应的语音朗读词并获取各自的时长（图文分离：读精炼口语，全片严格控制在 20 秒）：
+    Slide 1: 封面介绍 (~2.0s)
+    Slide 2: 形态特征 (~3.2s)
+    Slide 3: 植物趣闻 (~3.2s)
+    Slide 4: 适生范围 (~3.2s)
+    Slide 5: 美图收尾 (~2.0s)
     """
     import re
-    clean_morph = re.sub(r"^(形态特征|特征)[:：\s]*", "", script.morphology_text).strip()
-    clean_trivia = re.sub(r"^(植物趣闻|趣闻)[:：\s]*", "", script.trivia_text).strip()
-    clean_habitat = re.sub(r"^(适生范围|生境分布|生境)[:：\s]*", "", script.habitat_text).strip()
+    morph_spoken = script.morphology_spoken or script.morphology_text
+    trivia_spoken = script.trivia_spoken or script.trivia_text
+    habitat_spoken = script.habitat_spoken or script.habitat_text
+
+    clean_morph = re.sub(r"^(形态特征|特征)[:：\s]*", "", morph_spoken).strip()
+    clean_trivia = re.sub(r"^(植物趣闻|趣闻)[:：\s]*", "", trivia_spoken).strip()
+    clean_habitat = re.sub(r"^(适生范围|生境分布|生境)[:：\s]*", "", habitat_spoken).strip()
+
+    # 口语朗读句子精简防护（若未设置 spoken，则截取前段自然标点从容控时）
+    def _clamp_spoken(s: str, max_chars: int = 22) -> str:
+        s = s.strip()
+        if len(s) <= max_chars:
+            return s.rstrip("。，, ") + "。"
+        clauses = [c.strip() for c in re.split(r"[。；，,、]", s) if c.strip()]
+        res = ""
+        for c in clauses:
+            if len(res) + len(c) <= max_chars:
+                res += ("，" if res else "") + c
+            else:
+                break
+        if not res and clauses:
+            res = clauses[0][:max_chars]
+        return res.rstrip("。，, ") + "。"
+
+    clean_morph = _clamp_spoken(clean_morph, max_chars=16)
+    clean_trivia = _clamp_spoken(clean_trivia, max_chars=16)
+    clean_habitat = _clamp_spoken(clean_habitat, max_chars=16)
 
     texts = [
-        f"每日一种植物，{script.plant_name}。",
-        f"形态特征：{clean_morph}",
-        f"植物趣闻：{clean_trivia}",
-        f"适生范围：{clean_habitat}",
-        f"关注带你认识身边的草木中药。",
+        f"每日认识一种植物，{script.plant_name}。",
+        clean_morph,
+        clean_trivia,
+        clean_habitat,
+        "带你认识身边草木中药。",
     ]
 
     results: list[tuple[str, float]] = []
