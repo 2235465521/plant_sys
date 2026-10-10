@@ -84,13 +84,30 @@ function getSvgFallback(name: string, text = "暂无图片"): string {
 
 function AiVideoStudioCard() {
   const [prompt, setPrompt] = useState("");
-  const [stylePreset, setStylePreset] = useState("ancient");
+  const [stylePreset, setStylePreset] = useState("modern_trivia");
   const [useProModel, setUseProModel] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<VideoTaskStatus | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyList, setHistoryList] = useState<VideoTaskStatus[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+
+  const loadHistory = () => {
+    try {
+      const histStr = localStorage.getItem("video_history");
+      if (histStr) {
+        setHistoryList(JSON.parse(histStr));
+      }
+    } catch {
+      setHistoryList([]);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
   useEffect(() => {
     if (!activeTaskId || !modalOpen) return;
@@ -104,6 +121,13 @@ function AiVideoStudioCard() {
           setLoading(false);
           if (st.status === "completed") {
             message.success("视频合成完成！");
+            try {
+              const histStr = localStorage.getItem("video_history");
+              let hist = histStr ? JSON.parse(histStr) : [];
+              hist.unshift(st);
+              localStorage.setItem("video_history", JSON.stringify(hist));
+              loadHistory();
+            } catch (e) {}
           } else {
             message.error(st.message || "视频合成失败");
           }
@@ -146,11 +170,11 @@ function AiVideoStudioCard() {
   };
 
   const inspirationTags = [
+    { label: "🌱 天葵草本趣闻", text: "制作一条关于天葵的草本趣闻科普短视频" },
     { label: "✨ 十大中药植物", text: "做一条关于十大中药植物介绍视频" },
     { label: "🌿 浙八味名贵药材", text: "生成一条浙八味名贵药材专题介绍视频" },
     { label: "☀️ 夏季采收中草药", text: "我想做一条关于夏季采收的药用植物合集" },
     { label: "🍵 常见食疗同源植物", text: "帮我生成一条常见食疗同源植物短视频" },
-    { label: "🏔️ 高山野生生境植物", text: "做一条高山野生生境植物视频" },
   ];
 
   return (
@@ -182,9 +206,9 @@ function AiVideoStudioCard() {
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-on-surface-variant font-medium">视觉画风：</span>
-            <Select value={stylePreset} onChange={setStylePreset} size="small" style={{ width: 120 }}>
-              <Option value="ancient">古风宣纸画卷</Option>
-              <Option value="modern">现代简约风格</Option>
+            <Select value={stylePreset} onChange={setStylePreset} size="small" style={{ width: 200 }}>
+              <Option value="modern_trivia">🌿 草本趣闻风（老王聊草本）</Option>
+              <Option value="ancient">📜 经典古风宣纸画卷</Option>
             </Select>
           </div>
         </div>
@@ -231,8 +255,52 @@ function AiVideoStudioCard() {
               {tag.label}
             </Tag>
           ))}
+          <div className="flex-grow"></div>
+          <Button 
+            type="link" 
+            size="small" 
+            icon={<span className="material-symbols-outlined text-[14px]">history</span>}
+            onClick={() => setHistoryOpen(true)}
+            className="text-primary"
+          >
+            历史记录
+          </Button>
         </div>
       </div>
+
+      <Drawer
+        title="历史生成记录"
+        placement="right"
+        onClose={() => setHistoryOpen(false)}
+        open={historyOpen}
+        width={400}
+      >
+        {historyList.length > 0 ? (
+          <div className="space-y-4">
+            {historyList.map(item => (
+              <Card key={item.task_id} size="small" className="shadow-sm rounded-xl border border-primary/10">
+                <div className="text-sm font-semibold truncate" title={item.message}>{item.message || "生成任务"}</div>
+                <div className="text-xs text-on-surface-variant mt-1 mb-2">时间: {new Date(item.created_at * 1000).toLocaleString()}</div>
+                {item.result_video_url && (
+                  <div className="flex justify-end mt-2">
+                    <Button 
+                      size="small" 
+                      type="primary" 
+                      href={item.result_video_url} 
+                      target="_blank" 
+                      className="rounded-lg bg-emerald-600 hover:bg-emerald-500 border-none"
+                    >
+                      查看视频
+                    </Button>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Empty description="暂无历史记录" />
+        )}
+      </Drawer>
 
       <Modal
         open={modalOpen}
@@ -243,7 +311,7 @@ function AiVideoStudioCard() {
         }}
         footer={null}
         width={680}
-        destroyOnClose
+        destroyOnHidden
         title={
           <div className="flex items-center gap-2 text-primary font-bold text-lg">
             <span className="material-symbols-outlined text-amber-500">video_library</span>
@@ -257,12 +325,12 @@ function AiVideoStudioCard() {
               <div className="flex justify-between items-center text-sm font-medium">
                 <span className="text-on-surface flex items-center gap-2">
                   {taskStatus.status === "processing" && <Spin size="small" />}
-                  {taskStatus.step || "处理中..."}
+                  {taskStatus.current_step || "处理中..."}
                 </span>
-                <span className="text-primary font-bold">{taskStatus.progress}%</span>
+                <span className="text-primary font-bold">{taskStatus.progress_percentage ?? 0}%</span>
               </div>
               <Progress
-                percent={taskStatus.progress}
+                percent={taskStatus.progress_percentage}
                 status={
                   taskStatus.status === "failed"
                     ? "exception"
@@ -282,7 +350,7 @@ function AiVideoStudioCard() {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {taskStatus.matched_plants.map((name, idx) => (
-                    <Tag key={idx} color="emerald" className="rounded-md">
+                    <Tag key={idx} color="green" className="rounded-md">
                       {idx + 1}. {name}
                     </Tag>
                   ))}
@@ -290,14 +358,14 @@ function AiVideoStudioCard() {
               </div>
             )}
 
-            {taskStatus.status === "completed" && taskStatus.video_url && (
+            {taskStatus.status === "completed" && taskStatus.result_video_url && (
               <div className="space-y-4">
                 <div className="text-center font-medium text-emerald-600 text-sm">
                   🎉 {taskStatus.message}
                 </div>
                 <div className="flex justify-center bg-black/90 rounded-2xl p-2 shadow-inner">
                   <video
-                    src={taskStatus.video_url}
+                    src={taskStatus.result_video_url}
                     controls
                     autoPlay
                     className="max-h-[480px] rounded-xl object-contain"
@@ -308,7 +376,7 @@ function AiVideoStudioCard() {
                   <Button
                     type="primary"
                     icon={<span className="material-symbols-outlined text-[16px]">download</span>}
-                    href={taskStatus.video_url}
+                    href={taskStatus.result_video_url}
                     target="_blank"
                     download
                     className="bg-emerald-600 hover:bg-emerald-500 border-none"

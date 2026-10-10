@@ -161,10 +161,10 @@ export async function generatePlantVideo(plantId: number, style?: VideoStyleConf
 export interface VideoTaskStatus {
   task_id: string;
   status: "queued" | "processing" | "completed" | "failed";
-  progress: number;
-  step: string;
+  progress_percentage: number;
+  current_step: string;
   message: string;
-  video_url: string | null;
+  result_video_url: string | null;
   matched_plants: string[];
   created_at: number;
 }

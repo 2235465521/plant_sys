@@ -391,171 +391,149 @@ def get_6_slide_images(plant_data: dict[str, Any]) -> list[SlideData]:
     full_slide1.paste(photo_canvas1, photo_pos1, photo_canvas1)
     slides.append(SlideData(full_slide1, text_canvas1, photo_canvas1, photo_pos1))
     
+    def _build_standard_slide(title: str, img_idx: int, draw_content_func):
+        tc = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(tc)
+        draw.text((V_WIDTH//2, 180), title, fill=(141, 24, 32), font=font_title, anchor="mm")
+        
+        draw_content_func(draw)
+        
+        pc, pos = create_foreground_card(get_path_for_slide(img_idx))
+        fs = load_paper_background()
+        fs.paste(tc, (0, 0), tc)
+        fs.paste(pc, pos, pc)
+        slides.append(SlideData(fs, tc, pc, pos))
+
     # ------------------ SLIDE 2: 科属名片 ------------------
-    text_canvas2 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    s2_draw = ImageDraw.Draw(text_canvas2)
-    s2_draw.text((V_WIDTH//2, 180), "科属名片", fill=(141, 24, 32), font=font_title, anchor="mm")
-    
-    lines2 = []
-    v_name = plant_data.get('vernacular_name')
-    if is_valid_text(v_name):
-        lines2.append(f"中文学名：{v_name}")
-        
-    s_name = plant_data.get('scientific_name')
-    if is_valid_text(s_name):
-        lines2.append(f"拉丁学名：{s_name}")
-        
-    fam_gen = []
-    if is_valid_text(fam):
-        fam_gen.append(f"{fam}科")
-    if is_valid_text(gen):
-        fam_gen.append(f"{gen}属")
-    if fam_gen:
-        lines2.append(f"科属分类：{' · '.join(fam_gen)}")
-        
-    div = plant_data.get('division')
-    subc = plant_data.get('subclass')
-    div_sub = []
-    if is_valid_text(div):
-        div_sub.append(str(div))
-    if is_valid_text(subc):
-        div_sub.append(str(subc))
-    if div_sub:
-        lines2.append(f"门纲分类：{' · '.join(div_sub)}")
-        
-    if plant_data.get("aliases_list"):
-        valid_als = [a for a in plant_data["aliases_list"] if is_valid_text(a)]
-        if valid_als:
-            lines2.append(f"常见别名：{'、'.join(valid_als[:2])}")
-        
-    y_start = 1240
-    for line in lines2:
-        wrapped = wrap_text(line, font_body, 820)
-        for wl in wrapped:
-            s2_draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
-            y_start += 60
+    def draw_slide2(draw: ImageDraw.ImageDraw):
+        lines2 = []
+        v_name = plant_data.get('vernacular_name')
+        if is_valid_text(v_name):
+            lines2.append(f"中文学名：{v_name}")
             
-    photo_canvas2, photo_pos2 = create_foreground_card(get_path_for_slide(1))
-    full_slide2 = load_paper_background()
-    full_slide2.paste(text_canvas2, (0, 0), text_canvas2)
-    full_slide2.paste(photo_canvas2, photo_pos2, photo_canvas2)
-    slides.append(SlideData(full_slide2, text_canvas2, photo_canvas2, photo_pos2))
+        s_name = plant_data.get('scientific_name')
+        if is_valid_text(s_name):
+            lines2.append(f"拉丁学名：{s_name}")
+            
+        fam_gen = []
+        if is_valid_text(fam):
+            fam_gen.append(f"{fam}科")
+        if is_valid_text(gen):
+            fam_gen.append(f"{gen}属")
+        if fam_gen:
+            lines2.append(f"科属分类：{' · '.join(fam_gen)}")
+            
+        div = plant_data.get('division')
+        subc = plant_data.get('subclass')
+        div_sub = []
+        if is_valid_text(div):
+            div_sub.append(str(div))
+        if is_valid_text(subc):
+            div_sub.append(str(subc))
+        if div_sub:
+            lines2.append(f"门纲分类：{' · '.join(div_sub)}")
+            
+        if plant_data.get("aliases_list"):
+            valid_als = [a for a in plant_data["aliases_list"] if is_valid_text(a)]
+            if valid_als:
+                lines2.append(f"常见别名：{'、'.join(valid_als[:2])}")
+            
+        y_start = 1240
+        for line in lines2:
+            wrapped = wrap_text(line, font_body, 820)
+            for wl in wrapped:
+                draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
+                y_start += 60
+                
+    _build_standard_slide("科属名片", 1, draw_slide2)
     
     # ------------------ SLIDE 3: 形态特征 ------------------
-    text_canvas3 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    s3_draw = ImageDraw.Draw(text_canvas3)
-    s3_draw.text((V_WIDTH//2, 180), "形态特征", fill=(141, 24, 32), font=font_title, anchor="mm")
-    
-    morph_txt = plant_data.get("morphology_text")
-    if is_valid_text(morph_txt):
-        s_morph = str(morph_txt).strip()
-        if len(s_morph) > 120:
-            s_morph = s_morph[:120] + "..."
-        wrapped_morph = wrap_text(s_morph, font_body, 820)
-        y_start = 1230
-        for wl in wrapped_morph[:7]:
-            s3_draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
-            y_start += 60
-            
-    photo_canvas3, photo_pos3 = create_foreground_card(get_path_for_slide(2))
-    full_slide3 = load_paper_background()
-    full_slide3.paste(text_canvas3, (0, 0), text_canvas3)
-    full_slide3.paste(photo_canvas3, photo_pos3, photo_canvas3)
-    slides.append(SlideData(full_slide3, text_canvas3, photo_canvas3, photo_pos3))
+    def draw_slide3(draw: ImageDraw.ImageDraw):
+        morph_txt = plant_data.get("morphology_text")
+        if is_valid_text(morph_txt):
+            s_morph = str(morph_txt).strip()
+            if len(s_morph) > 120:
+                s_morph = s_morph[:120] + "..."
+            wrapped_morph = wrap_text(s_morph, font_body, 820)
+            y_start = 1230
+            for wl in wrapped_morph[:7]:
+                draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
+                y_start += 60
+                
+    _build_standard_slide("形态特征", 2, draw_slide3)
     
     # ------------------ SLIDE 4: 主要用途与价值 ------------------
-    text_canvas4 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    s4_draw = ImageDraw.Draw(text_canvas4)
-    s4_draw.text((V_WIDTH//2, 180), "主要用途与价值", fill=(141, 24, 32), font=font_title, anchor="mm")
-    
-    val_lines = []
-    y_start = 1230
-    if is_valid_text(med_part):
-        med_text = f"【入药部位】 {med_part}"
-        font_med = get_custom_font("2.ttf", 56, bold=True) 
-        s4_draw.text((V_WIDTH//2, y_start + 10), med_text, fill=(198, 40, 40), font=font_med, anchor="mm")
-        y_start += 95
-    
-    homology = plant_data.get("is_medicinal_food_homologous")
-    if is_valid_text(homology) and str(homology).strip() not in ["0", "false", "否"]:
-        val_lines.append("【药食同源】 是")
+    def draw_slide4(draw: ImageDraw.ImageDraw):
+        val_lines = []
+        y_start = 1230
+        if is_valid_text(med_part):
+            med_text = f"【入药部位】 {med_part}"
+            font_med = get_custom_font("2.ttf", 56, bold=True) 
+            draw.text((V_WIDTH//2, y_start + 10), med_text, fill=(198, 40, 40), font=font_med, anchor="mm")
+            y_start += 95
         
-    shape_desc = plant_data.get("medicinal_shape")
-    if is_valid_text(shape_desc):
-        val_lines.append(f"【药材特征】 {shape_desc}")
-        
-    h_desc = plant_data.get("harvest_months_desc")
-    if is_valid_text(h_desc):
-        val_lines.append(f"【采收说明】 {h_desc}")
-        
-    for line in val_lines:
-        wrapped = wrap_text(line, font_body, 820)
-        for wl in wrapped:
-            s4_draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
-            y_start += 60
-            if y_start > 1750:
-                break
-                
-    photo_canvas4, photo_pos4 = create_foreground_card(get_path_for_slide(3))
-    full_slide4 = load_paper_background()
-    full_slide4.paste(text_canvas4, (0, 0), text_canvas4)
-    full_slide4.paste(photo_canvas4, photo_pos4, photo_canvas4)
-    slides.append(SlideData(full_slide4, text_canvas4, photo_canvas4, photo_pos4))
+        homology = plant_data.get("is_medicinal_food_homologous")
+        if is_valid_text(homology) and str(homology).strip() not in ["0", "false", "否"]:
+            val_lines.append("【药食同源】 是")
+            
+        shape_desc = plant_data.get("medicinal_shape")
+        if is_valid_text(shape_desc):
+            val_lines.append(f"【药材特征】 {shape_desc}")
+            
+        h_desc = plant_data.get("harvest_months_desc")
+        if is_valid_text(h_desc):
+            val_lines.append(f"【采收说明】 {h_desc}")
+            
+        for line in val_lines:
+            wrapped = wrap_text(line, font_body, 820)
+            for wl in wrapped:
+                draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
+                y_start += 60
+                if y_start > 1750:
+                    break
+                    
+    _build_standard_slide("主要用途与价值", 3, draw_slide4)
     
     # ------------------ SLIDE 5: 生长环境 ------------------
-    text_canvas5 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    s5_draw = ImageDraw.Draw(text_canvas5)
-    s5_draw.text((V_WIDTH//2, 180), "生长环境", fill=(141, 24, 32), font=font_title, anchor="mm")
-    
-    hab_txt = plant_data.get("habitat")
-    y_start = 1230
-    if is_valid_text(hab_txt):
-        s5_draw.text((130, y_start), "【生长习性与生境】", fill=(20, 60, 40), font=font_body_bold)
-        y_start += 66
-        wrapped_hab = wrap_text(str(hab_txt).strip(), font_body, 820)
-        for wl in wrapped_hab[:4]:
-            s5_draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
-            y_start += 60
-        
-    valid_habs = [h for h in (plant_data.get("habitats_list") or []) if is_valid_text(h)]
-    if valid_habs:
-        y_start = max(y_start + 20, 1580)
-        tags = "  ".join([f"#{h}" for h in valid_habs[:3]])
-        s5_draw.text((130, y_start), tags, fill=(0, 80, 80), font=font_body_bold)
-        
-    photo_canvas5, photo_pos5 = create_foreground_card(get_path_for_slide(4))
-    full_slide5 = load_paper_background()
-    full_slide5.paste(text_canvas5, (0, 0), text_canvas5)
-    full_slide5.paste(photo_canvas5, photo_pos5, photo_canvas5)
-    slides.append(SlideData(full_slide5, text_canvas5, photo_canvas5, photo_pos5))
+    def draw_slide5(draw: ImageDraw.ImageDraw):
+        hab_txt = plant_data.get("habitat")
+        y_start = 1230
+        if is_valid_text(hab_txt):
+            draw.text((130, y_start), "【生长习性与生境】", fill=(20, 60, 40), font=font_body_bold)
+            y_start += 66
+            wrapped_hab = wrap_text(str(hab_txt).strip(), font_body, 820)
+            for wl in wrapped_hab[:4]:
+                draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
+                y_start += 60
+            
+        valid_habs = [h for h in (plant_data.get("habitats_list") or []) if is_valid_text(h)]
+        if valid_habs:
+            y_start = max(y_start + 20, 1580)
+            tags = "  ".join([f"#{h}" for h in valid_habs[:3]])
+            draw.text((130, y_start), tags, fill=(0, 80, 80), font=font_body_bold)
+            
+    _build_standard_slide("生长环境", 4, draw_slide5)
     
     # ------------------ SLIDE 6: 产地与分布 ------------------
-    text_canvas6 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    s6_draw = ImageDraw.Draw(text_canvas6)
-    s6_draw.text((V_WIDTH//2, 180), "产地与分布", fill=(141, 24, 32), font=font_title, anchor="mm")
-    
-    dist_cn = plant_data.get("distribution_china")
-    dist_ab = plant_data.get("distribution_abroad")
-    
-    y_start = 1230
-    if is_valid_text(dist_cn):
-        s6_draw.text((130, y_start), "【国内分布】", fill=(198, 40, 40), font=font_body_bold)
-        y_start += 60
-        wrapped_cn = wrap_text(str(dist_cn).strip(), font_body, 820)
-        for wl in wrapped_cn[:2]:
-            s6_draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
-            y_start += 60
+    def draw_slide6(draw: ImageDraw.ImageDraw):
+        dist_cn = plant_data.get("distribution_china")
+        dist_ab = plant_data.get("distribution_abroad")
         
-    if is_valid_text(dist_ab):
-        y_start += 20
-        s6_draw.text((130, y_start), "【国外分布】", fill=(120, 85, 30), font=font_body_bold)
-        s6_draw.text((130, y_start + 60), str(dist_ab).strip(), fill=(40, 40, 40), font=font_body)
+        y_start = 1230
+        if is_valid_text(dist_cn):
+            draw.text((130, y_start), "【国内分布】", fill=(198, 40, 40), font=font_body_bold)
+            y_start += 60
+            wrapped_cn = wrap_text(str(dist_cn).strip(), font_body, 820)
+            for wl in wrapped_cn[:2]:
+                draw.text((130, y_start), wl, fill=(40, 40, 40), font=font_body)
+                y_start += 60
             
-    photo_canvas6, photo_pos6 = create_foreground_card(get_path_for_slide(5))
-    full_slide6 = load_paper_background()
-    full_slide6.paste(text_canvas6, (0, 0), text_canvas6)
-    full_slide6.paste(photo_canvas6, photo_pos6, photo_canvas6)
-    slides.append(SlideData(full_slide6, text_canvas6, photo_canvas6, photo_pos6))
+        if is_valid_text(dist_ab):
+            y_start += 20
+            draw.text((130, y_start), "【国外分布】", fill=(120, 85, 30), font=font_body_bold)
+            draw.text((130, y_start + 60), str(dist_ab).strip(), fill=(40, 40, 40), font=font_body)
+                
+    _build_standard_slide("产地与分布", 5, draw_slide6)
     
     return slides
 

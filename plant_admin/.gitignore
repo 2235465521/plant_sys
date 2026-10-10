@@ -11,3 +11,4 @@ frontend/node_modules/
 *.mp4
 backend/data/plant_images/videos/
 backend/app/video_automation/*.mp4
+backend/data/ref_frames/

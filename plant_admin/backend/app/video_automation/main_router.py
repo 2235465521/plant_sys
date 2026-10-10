@@ -122,7 +122,7 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
     """后台工作线程：执行语义解析 -> 候选植物检索 -> 视频渲染合成"""
     try:
         model_title = "DeepSeek-Reasoner (Pro)" if model_mode == "pro" else "DeepSeek-Flash"
-        _update_task(task_id, status="processing", progress=5, step=f"正在通过 [{model_title}] 进行自然语言意图解析...")
+        _update_task(task_id, status="processing", progress_percentage=5, current_step=f"正在通过 [{model_title}] 进行自然语言意图解析...")
         
         from app.semantic_search import search_plants_for_video
         from app.video_automation.video_compiler import compile_plant_video, compile_collection_video
@@ -136,8 +136,8 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
             _update_task(
                 task_id,
                 status="failed",
-                progress=100,
-                step="未匹配到植物",
+                progress_percentage=100,
+                current_step="未匹配到植物",
                 message="数据库中未匹配到相关植物，请尝试修改提示词（如换成产地、功效或月份描述）。"
             )
             return
@@ -145,8 +145,8 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
         plant_names = [p.get("vernacular_name") or "未命名植物" for p in plants]
         _update_task(
             task_id,
-            progress=15,
-            step=f"【{model_title}】识别为【{'单植物' if mode == 'single' and len(plants) == 1 else '专题合集'}】，成功精选 {len(plants)} 种植物: {', '.join(plant_names[:5])}{'...' if len(plants) > 5 else ''}",
+            progress_percentage=15,
+            current_step=f"【{model_title}】识别为【{'单植物' if mode == 'single' and len(plants) == 1 else '专题合集'}】，成功精选 {len(plants)} 种植物: {', '.join(plant_names[:5])}{'...' if len(plants) > 5 else ''}",
             matched_plants=plant_names
         )
 
@@ -164,31 +164,47 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
         if mode == "single" and len(plants) == 1:
             pdata = plants[0]
             pid = pdata["id"]
-            _update_task(task_id, progress=25, step=f"开始为单植物 [{pdata.get('vernacular_name')}] 渲染 6 帧画卷...")
-            
-            # 补齐图片至 6 张
-            try:
-                paths = ensure_enough_plant_images(
-                    plant_id=pid,
-                    vernacular_name=pdata.get("vernacular_name") or "",
-                    scientific_name=pdata.get("scientific_name") or "",
-                    existing_server_paths=pdata.get("image_server_paths") or [],
-                    target_count=6
-                )
-                pdata["image_server_paths"] = paths
-            except Exception as e:
-                print(f"[Warning] 搜图补充异常: {e}")
 
-            slides = get_6_slide_images(pdata)
-            _update_task(task_id, progress=60, step="正在压制 20s 单植物高清短视频...")
-            
-            success, msg = compile_plant_video(slides, output_path, plant_data=pdata, style=style_config)
-            if not success:
-                _update_task(task_id, status="failed", progress=100, step="压制失败", message=msg)
-                return
+            def progress_cb(pct: int, msg_str: str):
+                _update_task(task_id, progress_percentage=pct, current_step=msg_str)
+
+            if style_preset in ["modern_trivia", "trivia", "modern"]:
+                from app.video_automation.trivia_compiler import compile_trivia_video
+                success, msg = compile_trivia_video(
+                    plant_data=pdata,
+                    output_path=output_path,
+                    use_pro=(model_mode == "pro"),
+                    progress_callback=progress_cb
+                )
+                if not success:
+                    _update_task(task_id, status="failed", progress_percentage=100, current_step="趣闻视频压制失败", message=msg)
+                    return
+            else:
+                _update_task(task_id, progress_percentage=25, current_step=f"开始为单植物 [{pdata.get('vernacular_name')}] 渲染 6 帧画卷...")
+                
+                # 补齐图片至 6 张
+                try:
+                    paths = ensure_enough_plant_images(
+                        plant_id=pid,
+                        vernacular_name=pdata.get("vernacular_name") or "",
+                        scientific_name=pdata.get("scientific_name") or "",
+                        existing_server_paths=pdata.get("image_server_paths") or [],
+                        target_count=6
+                    )
+                    pdata["image_server_paths"] = paths
+                except Exception as e:
+                    print(f"[Warning] 搜图补充异常: {e}")
+
+                slides = get_6_slide_images(pdata)
+                _update_task(task_id, progress_percentage=60, current_step="正在压制 20s 单植物高清短视频...")
+                
+                success, msg = compile_plant_video(slides, output_path, plant_data=pdata, style=style_config)
+                if not success:
+                    _update_task(task_id, status="failed", progress_percentage=100, current_step="压制失败", message=msg)
+                    return
         else:
             def progress_cb(pct: int, msg_str: str):
-                _update_task(task_id, progress=pct, step=msg_str)
+                _update_task(task_id, progress_percentage=pct, current_step=msg_str)
 
             success, msg = compile_collection_video(
                 topic_title=topic_title,
@@ -198,22 +214,22 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
                 progress_callback=progress_cb
             )
             if not success:
-                _update_task(task_id, status="failed", progress=100, step="合集压制失败", message=msg)
+                _update_task(task_id, status="failed", progress_percentage=100, current_step="合集压制失败", message=msg)
                 return
 
         video_url = f"/api/media/plants/videos/{output_filename}"
         _update_task(
             task_id,
             status="completed",
-            progress=100,
-            step="生成成功！",
+            progress_percentage=100,
+            current_step="生成成功！",
             message=f"【{topic_title}】视频已由 [{model_title}] 为您打造完成！涵盖 {len(plants)} 种精选植物。",
-            video_url=video_url
+            result_video_url=video_url
         )
 
     except Exception as e:
         print(f"[Task Error] {task_id}: {e}")
-        _update_task(task_id, status="failed", progress=100, step="异常失败", message=str(e))
+        _update_task(task_id, status="failed", progress_percentage=100, current_step="异常失败", message=str(e))
 
 
 @router.post("/semantic-generate")
@@ -234,10 +250,10 @@ def start_semantic_video_generation(
         video_tasks[task_id] = {
             "task_id": task_id,
             "status": "queued",
-            "progress": 0,
-            "step": "任务已排队等待处理...",
+            "progress_percentage": 0,
+            "current_step": "任务已排队等待处理...",
             "message": "",
-            "video_url": None,
+            "result_video_url": None,
             "matched_plants": [],
             "created_at": now
         }

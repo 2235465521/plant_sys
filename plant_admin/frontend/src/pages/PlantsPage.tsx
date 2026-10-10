@@ -942,25 +942,27 @@ export default function PlantsPage() {
                       : "开启后可在物种标签上直接框选，支持 Shift 范围选、Ctrl 单独勾选"
                   }
                 >
-                  <label className="flex cursor-pointer items-center gap-1.5 rounded border border-outline-variant px-3 py-1.5 font-label-sm text-label-sm text-on-surface-variant select-none">
-                    <Switch
-                      size="small"
-                      checked={cardMultiSelect}
-                      onChange={(v) => {
-                        setCardMultiSelect(v);
-                        if (!v) {
-                          setTableSelectedKeys([]);
-                          lastCardClickIdx.current = -1;
-                        }
-                      }}
-                    />
-                    勾选模式
-                    {cardMultiSelect && tableSelectedKeys.length > 0 && (
-                      <span className="ml-1 font-semibold text-primary">
-                        · {tableSelectedKeys.length} 已选
-                      </span>
-                    )}
-                  </label>
+                  <span>
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded border border-outline-variant px-3 py-1.5 font-label-sm text-label-sm text-on-surface-variant select-none">
+                      <Switch
+                        size="small"
+                        checked={cardMultiSelect}
+                        onChange={(v) => {
+                          setCardMultiSelect(v);
+                          if (!v) {
+                            setTableSelectedKeys([]);
+                            lastCardClickIdx.current = -1;
+                          }
+                        }}
+                      />
+                      勾选模式
+                      {cardMultiSelect && tableSelectedKeys.length > 0 && (
+                        <span className="ml-1 font-semibold text-primary">
+                          · {tableSelectedKeys.length} 已选
+                        </span>
+                      )}
+                    </label>
+                  </span>
                 </Tooltip>
                 <Tooltip
                   title={
@@ -973,15 +975,17 @@ export default function PlantsPage() {
                         : "请先在物种列表中选一个标本"
                   }
                 >
-                  <Button
-                    icon={<EyeOutlined />}
-                    loading={previewLoading}
-                    disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
-                    onClick={handlePreviewExportText}
-                    className="font-label-sm"
-                  >
-                    预览
-                  </Button>
+                  <span>
+                    <Button
+                      icon={<EyeOutlined />}
+                      loading={previewLoading}
+                      disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
+                      onClick={handlePreviewExportText}
+                      className="font-label-sm"
+                    >
+                      预览
+                    </Button>
+                  </span>
                 </Tooltip>
                 <Tooltip
                   title={
@@ -994,43 +998,49 @@ export default function PlantsPage() {
                         : "请先在物种列表中选一个标本"
                   }
                 >
-                  <Dropdown
-                    menu={batchExportMenuProps}
-                    disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
-                  >
-                    <Button
-                      icon={<ExportOutlined />}
-                      loading={loading}
+                  <span>
+                    <Dropdown
+                      menu={batchExportMenuProps}
                       disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
-                      className="font-label-sm"
                     >
-                      导出 <DownOutlined />
-                    </Button>
-                  </Dropdown>
+                      <Button
+                        icon={<ExportOutlined />}
+                        loading={loading}
+                        disabled={(cardMultiSelect ? tableSelectedKeys.length === 0 : !selected) || loading}
+                        className="font-label-sm"
+                      >
+                        导出 <DownOutlined />
+                      </Button>
+                    </Dropdown>
+                  </span>
                 </Tooltip>
                 <Tooltip title={selected ? `为当前选中的标本「${pickSpeciesLabel(selected)}」自动生成20秒古风短视频` : "请先在列表中选择一个物种标本"}>
-                  <Button
-                    icon={<VideoCameraOutlined />}
-                    disabled={!selected || loading}
-                    onClick={() => selected && openVideoConfig(selected)}
-                    className="font-label-sm bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white border-none shadow-sm"
-                  >
-                    生成视频
-                  </Button>
+                  <span>
+                    <Button
+                      icon={<VideoCameraOutlined />}
+                      disabled={!selected || loading}
+                      onClick={() => selected && openVideoConfig(selected)}
+                      className="font-label-sm bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white border-none shadow-sm"
+                    >
+                      生成视频
+                    </Button>
+                  </span>
                 </Tooltip>
                 <Tooltip title="切换为表格视图，支持列排序与批量勾选导出">
-                  <button
-                    type="button"
-                    onClick={() => setShowTable((v) => !v)}
-                    className={`flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 font-label-sm text-label-sm transition-colors ${
-                      showTable
-                        ? "bg-primary-container text-on-primary-container"
-                        : "text-on-surface-variant hover:bg-surface-container"
-                    }`}
-                  >
-                    <TableOutlined />
-                    表格视图
-                  </button>
+                  <span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTable((v) => !v)}
+                      className={`flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 font-label-sm text-label-sm transition-colors ${
+                        showTable
+                          ? "bg-primary-container text-on-primary-container"
+                          : "text-on-surface-variant hover:bg-surface-container"
+                      }`}
+                    >
+                      <TableOutlined />
+                      表格视图
+                    </button>
+                  </span>
                 </Tooltip>
               </div>
             </div>

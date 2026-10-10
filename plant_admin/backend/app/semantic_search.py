@@ -3,6 +3,40 @@ import urllib.request
 import json
 from fastapi import HTTPException
 
+def _call_deepseek_api(model: str, system_msg: str, user_msg: str, timeout: int = 15) -> dict:
+    """内部深模块辅助函数：统一处理 DeepSeek API 的调用、认证与错误拦截"""
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1
+    }
+    try:
+        req = urllib.request.Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            resp_bytes = response.read()
+            resp_data = json.loads(resp_bytes.decode("utf-8"))
+            content_str = resp_data["choices"][0]["message"]["content"]
+            if "{" in content_str:
+                content_str = content_str[content_str.find("{"):content_str.rfind("}")+1]
+            return json.loads(content_str)
+    except Exception as e:
+        print(f"LLM API 调用失败: {e}")
+        return {}
+
+
 def fetch_search_intent(query: str) -> dict:
     prompt = f"""你是一个专业的中草药与植物学检索专家。用户输入了一个植物搜索查询词："{query}"。
 请帮我分析该查询词所表达的语义，并提取为供数据库筛选的 JSON 参数。支持提取以下维度的筛选条件：
@@ -23,35 +57,15 @@ def fetch_search_intent(query: str) -> dict:
     "keywords": []
 }}"""
 
-    api_key = os.getenv("DEEPSEEK_API_KEY", "")
-    payload = {
-        "model": "deepseek-v4-flash",
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
-            {"role": "user", "content": prompt}
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.1
-    }
-
-    try:
-        req = urllib.request.Request(
-            "https://api.deepseek.com/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            resp_bytes = response.read()
-            resp_data = json.loads(resp_bytes.decode("utf-8"))
-            content_str = resp_data["choices"][0]["message"]["content"]
-            result = json.loads(content_str)
-            return result
-    except Exception as e:
-        print(f"LLM 意图解析失败: {e}")
+    result = _call_deepseek_api(
+        model="deepseek-v4-flash",
+        system_msg="You are a helpful assistant that outputs only JSON objects.",
+        user_msg=prompt,
+        timeout=10
+    )
+    if result:
+        return result
+    else:
         return {
             "harvest_months": [],
             "food_therapy_months": [],
@@ -227,39 +241,18 @@ def fetch_video_intent(prompt_text: str, model_mode: str = "flash") -> dict:
     "keywords": []
 }"""
 
-    api_key = os.getenv("DEEPSEEK_API_KEY", "")
     target_model = "deepseek-reasoner" if (model_mode and model_mode.lower() == "pro") else "deepseek-v4-flash"
     
-    payload = {
-        "model": target_model,
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant that outputs only JSON objects."},
-            {"role": "user", "content": f"视频生成提示词：\"{prompt_text}\"\n{system_prompt}"}
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.1
-    }
-
-    try:
-        req = urllib.request.Request(
-            "https://api.deepseek.com/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=15) as response:
-            resp_bytes = response.read()
-            resp_data = json.loads(resp_bytes.decode("utf-8"))
-            content_str = resp_data["choices"][0]["message"]["content"]
-            # 清理可能有思维链前缀的返回，确保纯 JSON 解析
-            if "{" in content_str:
-                content_str = content_str[content_str.find("{"):content_str.rfind("}")+1]
-            return json.loads(content_str)
-    except Exception as e:
-        print(f"LLM 视频意图解析异常 (model={target_model}): {e}")
+    result = _call_deepseek_api(
+        model=target_model,
+        system_msg="You are a helpful assistant that outputs only JSON objects.",
+        user_msg=f"视频生成提示词：\"{prompt_text}\"\n{system_prompt}",
+        timeout=15
+    )
+    
+    if result:
+        return result
+    else:
         return {
             "mode": "collection" if ("十" in prompt_text or "八" in prompt_text or "类" in prompt_text or "合集" in prompt_text) else "single",
             "target_count": 8 if ("十" in prompt_text or "合集" in prompt_text) else 1,
@@ -333,33 +326,25 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
             if pid not in matched_pids:
                 matched_pids.append(pid)
 
-    # ===== 阶段 1: 属性与标签关联精准匹配 =====
-    # (1) 生境分类匹配
-    if habitats:
-        conn = connect_mysql()
-        try:
+    conn = connect_mysql()
+    try:
+        # ===== 阶段 1: 属性与标签关联精准匹配 =====
+        # (1) 生境分类匹配
+        if habitats:
             ph = ",".join(["%s"] * len(habitats))
             with conn.cursor() as cur:
                 cur.execute(f"SELECT DISTINCT plant_id FROM plant_habitats WHERE habitat_type IN ({ph})", list(habitats))
                 add_pids([r["plant_id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
 
-    # (2) 排行榜分类匹配
-    if rankings:
-        conn = connect_mysql()
-        try:
+        # (2) 排行榜分类匹配
+        if rankings:
             ph = ",".join(["%s"] * len(rankings))
             with conn.cursor() as cur:
                 cur.execute(f"SELECT DISTINCT plant_id FROM plant_rankings WHERE ranking_type IN ({ph})", list(rankings))
                 add_pids([r["plant_id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
 
-    # (3) 产地区域匹配
-    if regions:
-        conn = connect_mysql()
-        try:
+        # (3) 产地区域匹配
+        if regions:
             conds = []
             reg_params = []
             for r in regions:
@@ -369,13 +354,9 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
             with conn.cursor() as cur:
                 cur.execute(f"SELECT DISTINCT plant_id FROM plant_regions WHERE {sql_where}", reg_params)
                 add_pids([r["plant_id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
 
-    # (4) 清洗后的关键词模糊匹配
-    if cleaned_kws:
-        conn = connect_mysql()
-        try:
+        # (4) 清洗后的关键词模糊匹配
+        if cleaned_kws:
             conds = []
             sql_params = []
             for kw in cleaned_kws:
@@ -386,52 +367,14 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
             with conn.cursor() as cur:
                 cur.execute(f"SELECT id FROM plant_classification_import WHERE {sql_where} LIMIT 20", sql_params)
                 add_pids([r["id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
+    finally:
+        conn.close()
 
-    # ===== 阶段 2: 优先按药用/药食同源特征智能补充匹配 =====
-    if len(matched_pids) < target_count:
-        conn = connect_mysql()
-        try:
-            needed = target_count - len(matched_pids)
-            exclude_clause = ""
-            params = []
-            if matched_pids:
-                ph = ",".join(["%s"] * len(matched_pids))
-                exclude_clause = f"AND id NOT IN ({ph})"
-                params.extend(matched_pids)
-            params.append(needed * 2)
-
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT id FROM plant_classification_import "
-                    f"WHERE (is_medicinal_food_homologous = '是' OR medicinal_part IS NOT NULL OR morphology_text IS NOT NULL) "
-                    f"{exclude_clause} "
-                    f"ORDER BY id ASC LIMIT %s",
-                    params
-                )
-                add_pids([r["id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
-
-    # ===== 阶段 3: 全局通用保底 =====
-    if len(matched_pids) < target_count:
-        conn = connect_mysql()
-        try:
-            needed = target_count - len(matched_pids)
-            exclude_clause = ""
-            params = []
-            if matched_pids:
-                ph = ",".join(["%s"] * len(matched_pids))
-                exclude_clause = f"WHERE id NOT IN ({ph})"
-                params.extend(matched_pids)
-            params.append(needed)
-
-            with conn.cursor() as cur:
-                cur.execute(f"SELECT id FROM plant_classification_import {exclude_clause} ORDER BY id ASC LIMIT %s", params)
-                add_pids([r["id"] for r in cur.fetchall() or []])
-        finally:
-            conn.close()
+    # 规范修复: 移除不相干的兜底填充，不足时直接输出警告。
+    warning_message = ""
+    if len(matched_pids) < target_count and len(matched_pids) > 0:
+        warning_message = f"匹配不足，要求 {target_count} 种，仅找到 {len(matched_pids)} 种。已按实际数量生成。"
+        target_count = len(matched_pids)
 
     # 读取完整的植物数据
     matched_plants = []
@@ -446,7 +389,8 @@ def search_plants_for_video(prompt_text: str, model_mode: str = "flash") -> dict
         "topic_title": topic_title,
         "style_preset": style_preset,
         "model_mode": model_mode,
-        "plants": matched_plants
+        "plants": matched_plants,
+        "warning_message": warning_message
     }
 
 
