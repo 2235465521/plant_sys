@@ -349,7 +349,7 @@ export default function PlantsPage() {
         if (!alive) return;
         if (axios.isAxiosError(e)) {
           if (e.code === "ECONNABORTED" || /timeout/i.test(String(e.message))) {
-            message.error("请求超时：请确认后端已启动（端口 8000），并通过 npm run dev 访问");
+            message.error("请求超时：请确认后端已启动（端口 8002），并通过 npm run dev 访问");
           } else if (!e.response) {
             message.error("无法连接后端：请先启动 uvicorn，再用 npm run dev 打开本站");
           } else {
