@@ -209,32 +209,33 @@ def draw_photo_transition(
     ease: float
 ):
     """
-    丝滑卡片高级转场 (Smooth Scale & Cross-Fade)：
-    - 前一张卡片：轻微缩放 (1.0 -> 0.94) 并自然淡出 (1.0 -> 0.0)
-    - 后一张卡片：轻微放大 (0.94 -> 1.0) 并平滑淡入 (0.0 -> 1.0)
+    丝滑卡片高级转场 (Smooth Cross-Fade & Scale Transition)：
+    - 通栏 1080x900 大图与 1080x1920 全屏摄影保持左右满幅 (无边缘内缩黑边缝隙)，执行纯净无暇 Alpha 交叉淡入淡出 (Cross-Fade)
+    - 首屏白瓷药材盘小卡片平滑淡出
     - 绝无黑块、生硬折叠与畸变，完美融合光斑背景
     """
-    # 1. 前一张卡片
     alpha_out = max(0.0, 1.0 - ease)
-    scale_out = 1.0 - ease * 0.06
-    curr_scaled, dx1, dy1 = apply_photo_scale(curr_slide.photo_canvas, scale_out, scale_out)
-    curr_faded = apply_photo_opacity(curr_scaled, alpha_out)
-    frame.paste(
-        curr_faded,
-        (curr_slide.photo_pos[0] + dx1, curr_slide.photo_pos[1] + dy1),
-        curr_faded
-    )
-
-    # 2. 后一张卡片
     alpha_in = min(1.0, ease)
-    scale_in = 0.94 + ease * 0.06
-    next_scaled, dx2, dy2 = apply_photo_scale(next_slide.photo_canvas, scale_in, scale_in)
-    next_faded = apply_photo_opacity(next_scaled, alpha_in)
-    frame.paste(
-        next_faded,
-        (next_slide.photo_pos[0] + dx2, next_slide.photo_pos[1] + dy2),
-        next_faded
-    )
+
+    # 1. 前一张图
+    if curr_slide.photo_canvas.size[0] >= 1080:
+        curr_faded = apply_photo_opacity(curr_slide.photo_canvas, alpha_out)
+        frame.paste(curr_faded, curr_slide.photo_pos, curr_faded)
+    else:
+        scale_out = 1.0 - ease * 0.06
+        curr_scaled, dx1, dy1 = apply_photo_scale(curr_slide.photo_canvas, scale_out, scale_out)
+        curr_faded = apply_photo_opacity(curr_scaled, alpha_out)
+        frame.paste(curr_faded, (curr_slide.photo_pos[0] + dx1, curr_slide.photo_pos[1] + dy1), curr_faded)
+
+    # 2. 后一张图
+    if next_slide.photo_canvas.size[0] >= 1080:
+        next_faded = apply_photo_opacity(next_slide.photo_canvas, alpha_in)
+        frame.paste(next_faded, next_slide.photo_pos, next_faded)
+    else:
+        scale_in = 0.94 + ease * 0.06
+        next_scaled, dx2, dy2 = apply_photo_scale(next_slide.photo_canvas, scale_in, scale_in)
+        next_faded = apply_photo_opacity(next_scaled, alpha_in)
+        frame.paste(next_faded, (next_slide.photo_pos[0] + dx2, next_slide.photo_pos[1] + dy2), next_faded)
 
 
 def generate_trivia_frames(

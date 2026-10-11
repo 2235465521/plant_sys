@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Optional
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 from app.video_automation.frame_renderer import SlideData, V_WIDTH, V_HEIGHT, get_system_font
 from app.video_automation.trivia_script import TriviaScript, generate_trivia_script
@@ -66,26 +66,25 @@ def get_banner_font(size: int) -> ImageFont.FreeTypeFont:
     return get_system_font(size, bold=True)
 
 
-def get_body_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
+def get_calligraphy_font(size: int) -> ImageFont.FreeTypeFont:
     """
-    获取正文爆款字体（幼圆 > 微软雅黑粗体 > 仓库自带1.ttf > 2.ttf > Linux CJK）。
+    获取行楷书法艺术字体（华文行楷 > 仓库自带2.ttf > 华文楷体 > 楷体 > 1.ttf > 系统正文字体）。
+    对标《天.MOV》标志性爆款倾斜行楷书写风格。
     """
-    f_1 = FONTS_DIR / "1.ttf"
     f_2 = FONTS_DIR / "2.ttf"
+    f_1 = FONTS_DIR / "1.ttf"
     candidates = [
-        "C:\\Windows\\Fonts\\SIMYOU.TTF",
-        "C:\\Windows\\Fonts\\msyhbd.ttc" if bold else "C:\\Windows\\Fonts\\msyh.ttc",
-        str(f_1.resolve()) if f_1.exists() else "",
+        "C:\\Windows\\Fonts\\STXINGKA.TTF",
         str(f_2.resolve()) if f_2.exists() else "",
+        "C:\\Windows\\Fonts\\STKAITI.TTF",
+        "C:\\Windows\\Fonts\\SIMKAI.TTF",
+        str(f_1.resolve()) if f_1.exists() else "",
+        "C:\\Windows\\Fonts\\SIMYOU.TTF",
+        "C:\\Windows\\Fonts\\msyhbd.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
-        "C:\\Windows\\Fonts\\simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
     ]
     for c in candidates:
         if c and os.path.exists(c):
@@ -93,7 +92,86 @@ def get_body_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
                 return ImageFont.truetype(c, size)
             except Exception:
                 pass
-    return get_system_font(size, bold=bold)
+    return get_system_font(size, bold=True)
+
+
+def get_cjk_fallback_font(size: int) -> ImageFont.FreeTypeFont:
+    """
+    获取植物学罕见字降级保底字体（如 蓇、葖、蒴 等字符）。
+    使用覆盖字符集完备的华文楷体、楷体或微软雅黑。
+    """
+    candidates = [
+        "C:\\Windows\\Fonts\\STKAITI.TTF",
+        "C:\\Windows\\Fonts\\SIMKAI.TTF",
+        "C:\\Windows\\Fonts\\msyhbd.ttc",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            try:
+                return ImageFont.truetype(c, size)
+            except Exception:
+                pass
+    return get_system_font(size, bold=True)
+
+
+def render_slanted_line(
+    text: str,
+    primary_font: ImageFont.FreeTypeFont,
+    fallback_font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int] = (255, 238, 20),
+    outline_color: tuple[int, int, int] = (20, 15, 5),
+    outline_width: int = 4,
+    shear: float = -0.18
+) -> Image.Image:
+    """
+    渲染带字符级生僻字回退、深黑描边与倾斜仿射变换的单行文字图层。
+    完全对齐《天.MOV》行楷书法 10° 倾角视觉。
+    """
+    chars_info = []
+    total_w = 0.0
+    max_h = 30
+    for ch in text:
+        mask_h = primary_font.getmask(ch).size[1]
+        use_font = primary_font if mask_h > 0 else fallback_font
+        ch_w = use_font.getlength(ch)
+        chars_info.append((ch, use_font, ch_w))
+        total_w += ch_w
+        box = use_font.getbbox(ch)
+        if box:
+            max_h = max(max_h, box[3] - box[1])
+
+    pad_w = outline_width * 4 + 40
+    pad_h = outline_width * 4 + 30
+    total_w_int = int(total_w) + pad_w
+    total_h_int = max_h + pad_h
+    layer = Image.new("RGBA", (total_w_int, total_h_int), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    curr_x = 20.0
+    y_off = 10
+
+    for ch, use_font, ch_w in chars_info:
+        for dx in range(-outline_width, outline_width + 1):
+            for dy in range(-outline_width, outline_width + 1):
+                if dx * dx + dy * dy <= outline_width * outline_width:
+                    d.text((curr_x + dx, y_off + dy), ch, fill=outline_color, font=use_font)
+        d.text((curr_x, y_off), ch, fill=fill, font=use_font)
+        curr_x += ch_w
+
+    m = (1, shear, -shear * (total_h_int / 2), 0, 1, 0)
+    extra_w = int(abs(shear) * total_h_int) + 20
+    slanted = layer.transform((total_w_int + extra_w, total_h_int), Image.Transform.AFFINE, m, Image.Resampling.BILINEAR)
+    return slanted
+
+
+def get_body_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
+    """
+    获取正文字体（优先华文行楷 > 幼圆 > 微软雅黑粗体 > 仓库自带1.ttf > 2.ttf > Linux CJK）。
+    """
+    return get_calligraphy_font(size)
 
 
 def get_latin_pinyin_font(size: int) -> ImageFont.FreeTypeFont:
@@ -111,7 +189,7 @@ def get_latin_pinyin_font(size: int) -> ImageFont.FreeTypeFont:
                 return ImageFont.truetype(c, size)
             except Exception:
                 pass
-    return get_body_font(size, bold=False)
+    return get_system_font(size, bold=False)
 
 
 def draw_text_with_outline(
@@ -323,6 +401,74 @@ def create_photo_card(
     return canvas, pos
 
 
+def create_fullbleed_hero_photo(
+    image_path: str,
+    w: int = 1080,
+    h: int = 900
+) -> tuple[Image.Image, tuple[int, int]]:
+    """
+    内容页通栏 1080x900 植物主画幅（对标《天.MOV》样片像素级坐标）：
+    - 满幅横向 1080px 通栏铺满，无白框、无圆角、无悬浮投影
+    - y 坐标固定为 310，精准贴合顶部标牌与底部解说栏分割线
+    """
+    pos = (0, 310)
+    img = None
+    if image_path and os.path.exists(image_path):
+        try:
+            raw = Image.open(image_path).convert("RGBA")
+            rw, rh = raw.size
+            scale = max(w / rw, h / rh)
+            nw, nh = int(rw * scale), int(rh * scale)
+            resized = raw.resize((nw, nh), Image.Resampling.LANCZOS)
+            x_c = (nw - w) // 2
+            y_c = (nh - h) // 2
+            img = resized.crop((x_c, y_c, x_c + w, y_c + h))
+        except Exception:
+            img = None
+
+    if img is None:
+        img = Image.new("RGBA", (w, h), (210, 225, 240, 255))
+
+    return img, pos
+
+
+def create_fullscreen_photo(
+    image_path: str,
+    w: int = 1080,
+    h: int = 1920
+) -> Image.Image:
+    """
+    尾幕 1080x1920 全屏植物摄影收尾画幅（对标《天.MOV》样片 17s~20s 纯净唯美收尾）：
+    - 底层：同图自适应高斯模糊 (radius=35) 虚化铺底
+    - 中层：保持宽高比居中高清特写大图展示
+    - 绝无多余文字遮挡，提供纯净视听享受
+    """
+    if not image_path or not os.path.exists(image_path):
+        return Image.new("RGBA", (w, h), (40, 60, 40, 255))
+    try:
+        raw = Image.open(image_path).convert("RGBA")
+        rw, rh = raw.size
+
+        # 底层虚化铺底
+        bg_scale = max(w / rw, h / rh)
+        bg_w, bg_h = int(rw * bg_scale), int(rh * bg_scale)
+        bg_img = raw.resize((bg_w, bg_h), Image.Resampling.LANCZOS)
+        bg_crop = bg_img.crop(((bg_w - w) // 2, (bg_h - h) // 2, (bg_w - w) // 2 + w, (bg_h - h) // 2 + h))
+        bg_blur = bg_crop.filter(ImageFilter.GaussianBlur(35))
+        enhancer = ImageEnhance.Brightness(bg_blur.convert("RGB"))
+        bg_final = enhancer.enhance(0.9).convert("RGBA")
+
+        # 前景清晰居中（适配 1080 宽度）
+        fg_scale = w / rw
+        fg_w, fg_h = w, int(rh * fg_scale)
+        fg_img = raw.resize((fg_w, fg_h), Image.Resampling.LANCZOS)
+        fg_y = (h - fg_h) // 2
+        bg_final.paste(fg_img, (0, fg_y), fg_img)
+        return bg_final
+    except Exception:
+        return Image.new("RGBA", (w, h), (40, 60, 40, 255))
+
+
 def resolve_plant_images(plant_data: dict[str, Any]) -> list[str]:
     """解析并返回可用的本地植物照片物理路径"""
     paths = plant_data.get("image_server_paths") or []
@@ -381,113 +527,168 @@ def render_trivia_slides(
             return ""
         return local_images[idx % len(local_images)]
 
+    orbit_p = TRIVIA_ASSETS_DIR / "orbit_ring.png"
+
     # ------------------ SLIDE 1: 封面 ------------------
     tc1 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
     # 顶部标牌
-    draw_cloud_banner(tc1, "每日认识一种植物", y_pos=180, font_size=82)
+    draw_cloud_banner(tc1, "每日认识一种植物", y_pos=160, font_size=82)
 
     # 副标（黄色黑边）
     s1_draw = ImageDraw.Draw(tc1)
-    f_sub = get_body_font(60, bold=True)
+    f_sub = get_banner_font(58)
     badge_text = f"（ {script.cover_badge} ）"
     draw_text_with_outline(
-        s1_draw, (V_WIDTH // 2, 290), badge_text, f_sub,
+        s1_draw, (V_WIDTH // 2, 265), badge_text, f_sub,
         fill=(255, 235, 40), outline_color=(70, 45, 10), outline_width=4, anchor="mm"
     )
 
     # 药材白瓷盘
-    pc1, pos1 = create_dish_card(get_img(0), size=620)
+    pc1, pos1 = create_dish_card(get_img(0), size=520)
+    pos1 = (V_WIDTH // 2 - 560 // 2, 330)
 
-    # 拼音（白字带粉红光晕）
-    f_py = get_latin_pinyin_font(62)
-    py_x, py_y = V_WIDTH // 2, 1070
-    for dx in range(-4, 5):
-        for dy in range(-4, 5):
-            if dx * dx + dy * dy <= 16:
-                s1_draw.text((py_x + dx, py_y + dy), script.pinyin, fill=(255, 90, 110, 140), font=f_py, anchor="mm")
-    s1_draw.text((py_x, py_y), script.pinyin, fill=(255, 255, 255), font=f_py, anchor="mm")
-
-    # 植物中文大名（粗体大红带白描边与红晕）
-    f_name_size = 128
-    f_name = get_banner_font(f_name_size)
-    while f_name.getlength(script.plant_name) > 860 and f_name_size > 64:
-        f_name_size -= 8
-        f_name = get_banner_font(f_name_size)
-    name_x, name_y = V_WIDTH // 2, 1200
+    # 拼音（红粉光晕外晕）
+    f_py = get_latin_pinyin_font(60)
+    py_x, py_y = V_WIDTH // 2, 940
     for dx in range(-6, 7):
         for dy in range(-6, 7):
             if dx * dx + dy * dy <= 36:
-                s1_draw.text((name_x + dx, name_y + dy), script.plant_name, fill=(240, 50, 70, 120), font=f_name, anchor="mm")
+                s1_draw.text((py_x + dx, py_y + dy), script.pinyin, fill=(255, 80, 100, 150), font=f_py, anchor="mm")
     draw_text_with_outline(
-        s1_draw, (name_x, name_y), script.plant_name, f_name,
-        fill=(235, 45, 55), outline_color=(255, 255, 255), outline_width=5, anchor="mm"
+        s1_draw, (py_x, py_y), script.pinyin, f_py,
+        fill=(255, 255, 255), outline_color=(200, 50, 60), outline_width=2, anchor="mm"
     )
 
+    # 植物中文大名（粗体大红带白描边与红晕，倾斜行楷）
+    f_name_size = 120
+    f_name = get_calligraphy_font(f_name_size)
+    while f_name.getlength(script.plant_name) > 800 and f_name_size > 60:
+        f_name_size -= 8
+        f_name = get_calligraphy_font(f_name_size)
+
+    name_box = f_name.getbbox(script.plant_name)
+    nw = (name_box[2] - name_box[0]) if name_box else 300
+    nh = (name_box[3] - name_box[1]) if name_box else 120
+    pad_box = 100
+    name_layer = Image.new("RGBA", (nw + pad_box, nh + pad_box), (0, 0, 0, 0))
+    nd = ImageDraw.Draw(name_layer)
+    cx_n, cy_n = (nw + pad_box) // 2, (nh + pad_box) // 2
+    for dx in range(-8, 9):
+        for dy in range(-8, 9):
+            if dx * dx + dy * dy <= 64:
+                nd.text((cx_n + dx, cy_n + dy), script.plant_name, fill=(240, 40, 50, 160), font=f_name, anchor="mm")
+    for dx in range(-4, 5):
+        for dy in range(-4, 5):
+            if dx * dx + dy * dy <= 16:
+                nd.text((cx_n + dx, cy_n + dy), script.plant_name, fill=(255, 255, 255), font=f_name, anchor="mm")
+    nd.text((cx_n, cy_n), script.plant_name, fill=(235, 45, 55), font=f_name, anchor="mm")
+
+    m_name = (1, -0.15, 0.15 * ((nh + pad_box) / 2), 0, 1, 0)
+    slanted_name = name_layer.transform((nw + pad_box + 40, nh + pad_box), Image.Transform.AFFINE, m_name, Image.Resampling.BILINEAR)
+    tc1.paste(slanted_name, (V_WIDTH // 2 - slanted_name.width // 2, 990), slanted_name)
+
     # 透视星轨环
-    orbit_p = TRIVIA_ASSETS_DIR / "orbit_ring.png"
     if orbit_p.exists():
         try:
             orbit = Image.open(str(orbit_p)).convert("RGBA")
-            tc1.paste(orbit, (V_WIDTH // 2 - orbit.width // 2, 1340), orbit)
+            tc1.paste(orbit, (V_WIDTH // 2 - orbit.width // 2, 1260), orbit)
         except Exception:
             pass
 
-    # 别名与科属（爆款亮黄黑描边）
+    # 别名与科属（倾斜行楷，标签白色，内容亮黄）
     import re
     clean_aliases = re.sub(r"\(.*?\)|（.*?）", "", script.aliases).strip()
     clean_aliases = re.sub(r"[、,，\s]+", "、", clean_aliases).strip("、")
     if len(clean_aliases) > 18:
         clean_aliases = clean_aliases[:18] + "…"
 
-    f_meta = get_body_font(52, bold=True)
-    draw_text_with_outline(
-        s1_draw, (V_WIDTH // 2, 1410), f"别名：{clean_aliases}", f_meta,
-        fill=(255, 240, 30), outline_color=(35, 25, 10), outline_width=4, anchor="mm"
-    )
-    draw_text_with_outline(
-        s1_draw, (V_WIDTH // 2, 1495), f"科属：{script.family_genus}", f_meta,
-        fill=(255, 240, 30), outline_color=(35, 25, 10), outline_width=4, anchor="mm"
-    )
+    f_meta = get_calligraphy_font(52)
+    f_fb = get_cjk_fallback_font(52)
+
+    def render_meta_line(label: str, val: str) -> Image.Image:
+        l_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, (255, 255, 255)) for ch in label]
+        v_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, (255, 238, 20)) for ch in val]
+        all_chars = l_chars + v_chars
+        tot_w = sum(f.getlength(ch) for ch, f, _ in all_chars)
+        tot_w_int = int(tot_w) + 60
+        tot_h_int = 75
+        lay = Image.new("RGBA", (tot_w_int, tot_h_int), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(lay)
+        curr_x = 20.0
+        y_off = 12
+        for ch, f, col in all_chars:
+            for dx in range(-4, 5):
+                for dy in range(-4, 5):
+                    if dx * dx + dy * dy <= 16:
+                        ld.text((curr_x + dx, y_off + dy), ch, fill=(20, 15, 5), font=f)
+            ld.text((curr_x, y_off), ch, fill=col, font=f)
+            curr_x += f.getlength(ch)
+        m = (1, -0.18, 0.18 * (tot_h_int / 2), 0, 1, 0)
+        return lay.transform((tot_w_int + 25, tot_h_int), Image.Transform.AFFINE, m, Image.Resampling.BILINEAR)
+
+    m1 = render_meta_line("别名：", clean_aliases)
+    m2 = render_meta_line("科属：", script.family_genus)
+    tc1.paste(m1, (V_WIDTH // 2 - m1.width // 2, 1310), m1)
+    tc1.paste(m2, (V_WIDTH // 2 - m2.width // 2, 1395), m2)
 
     fs1 = bg.copy()
     fs1.paste(tc1, (0, 0), tc1)
     fs1.paste(pc1, pos1, pc1)
     slides.append(SlideData(fs1.convert("RGB"), tc1, pc1, pos1))
 
-    # ------------------ 通用内容 Slide 构造器 ------------------
+    # ------------------ 通用内容 Slide 构造器 (Slide 2, 3, 4) ------------------
     def _build_content_slide(title: str, text: str, img_idx: int):
         tc = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-        draw_cloud_banner(tc, title, y_pos=180, font_size=86)
+        # 顶部对称祥云标牌
+        draw_cloud_banner(tc, title, y_pos=160, font_size=84)
 
-        # 正文排版：针对 50~75 字多行图文卡片智能动态字号与行距
-        f_size = 48
-        f_content = get_body_font(f_size, bold=True)
-        wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
+        # 中部通栏满幅植物大图 (1080x900)
+        pc, pos = create_fullbleed_hero_photo(get_img(img_idx), w=1080, h=900)
 
-        if len(wrapped_lines) > 4:
-            f_size = 44
-            f_content = get_body_font(f_size, bold=True)
-            wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
-            line_height = 70
-        elif len(wrapped_lines) <= 2:
-            f_size = 52
-            f_content = get_body_font(f_size, bold=True)
-            wrapped_lines = wrap_text_cjk(text, f_content, max_width=920)
+        # 底部透视星轨环
+        if orbit_p.exists():
+            try:
+                orbit = Image.open(str(orbit_p)).convert("RGBA")
+                tc.paste(orbit, (V_WIDTH // 2 - orbit.width // 2, 1320), orbit)
+            except Exception:
+                pass
+
+        # 底部倾斜行楷爆款文字排版
+        f_calli = get_calligraphy_font(54)
+        f_fallback = get_cjk_fallback_font(54)
+
+        wrapped_lines = wrap_text_cjk(text, f_calli, max_width=820)
+        n_lines = len(wrapped_lines)
+
+        if n_lines > 4:
+            f_calli = get_calligraphy_font(50)
+            f_fallback = get_cjk_fallback_font(50)
+            wrapped_lines = wrap_text_cjk(text, f_calli, max_width=820)
+            line_height = 72
+            y_start = 1255
+        elif n_lines <= 3:
             line_height = 80
+            y_start = 1290
         else:
-            line_height = 74
+            line_height = 76
+            y_start = 1260
 
-        draw_c = ImageDraw.Draw(tc)
-        y_text = 1060
+        x_start = 125
+        curr_y = y_start
 
         for line in wrapped_lines:
-            draw_text_with_outline(
-                draw_c, (90, y_text), line, f_content,
-                fill=(255, 238, 20), outline_color=(30, 20, 10), outline_width=4, anchor="la"
+            s_line = render_slanted_line(
+                line,
+                primary_font=f_calli,
+                fallback_font=f_fallback,
+                fill=(255, 238, 20),
+                outline_color=(20, 15, 5),
+                outline_width=4,
+                shear=-0.18
             )
-            y_text += line_height
+            tc.paste(s_line, (x_start, curr_y), s_line)
+            curr_y += line_height
 
-        pc, pos = create_photo_card(get_img(img_idx), w=1000, h=660)
         fs = bg.copy()
         fs.paste(tc, (0, 0), tc)
         fs.paste(pc, pos, pc)
@@ -502,59 +703,10 @@ def render_trivia_slides(
     # SLIDE 4: 适生范围
     _build_content_slide(script.habitat_title, script.habitat_text, 3)
 
-    # ------------------ SLIDE 5: 全屏美图收尾 ------------------
+    # ------------------ SLIDE 5: 100% 全屏唯美摄影大图收尾 ------------------
+    pc5 = create_fullscreen_photo(get_img(4), w=1080, h=1920)
+    pos5 = (0, 0)
     tc5 = Image.new("RGBA", (V_WIDTH, V_HEIGHT), (0, 0, 0, 0))
-    d5 = ImageDraw.Draw(tc5)
-    
-    left_str = f"《{script.plant_name}》"
-    right_str = "草木有灵"
-    gap_str = "    "
-    full_str = f"{left_str}{gap_str}{right_str}"
-
-    f_end_size = 92
-    f_end = get_banner_font(f_end_size)
-    # 动态防溢出：确保标题不超出 960px 宽度
-    while f_end.getlength(full_str) > 960 and f_end_size > 48:
-        f_end_size -= 4
-        f_end = get_banner_font(f_end_size)
-
-    # 精确计算水平居中及中间黄金圆点坐标（避免任何字体缺少·字符导致方块乱码）
-    w_left = f_end.getlength(left_str)
-    w_gap = f_end.getlength(gap_str)
-    w_right = f_end.getlength(right_str)
-    total_w = w_left + w_gap + w_right
-    start_x = (V_WIDTH - total_w) / 2
-    y_pos = 1720
-
-    # 绘制左《植物名》
-    draw_text_with_outline(
-        d5, (int(start_x + w_left / 2), y_pos), left_str, f_end,
-        fill=(255, 235, 50), outline_color=(50, 30, 10), outline_width=5, anchor="mm"
-    )
-    # 绘制中间精致立体金点
-    dot_x = int(start_x + w_left + w_gap / 2)
-    dot_r = max(5, int(f_end_size * 0.08))
-    d5.ellipse(
-        (dot_x - dot_r - 4, y_pos - dot_r - 4, dot_x + dot_r + 4, y_pos + dot_r + 4),
-        fill=(50, 30, 10)
-    )
-    d5.ellipse(
-        (dot_x - dot_r, y_pos - dot_r, dot_x + dot_r, y_pos + dot_r),
-        fill=(255, 235, 50)
-    )
-    # 绘制右 草木有灵
-    draw_text_with_outline(
-        d5, (int(start_x + w_left + w_gap + w_right / 2), y_pos), right_str, f_end,
-        fill=(255, 235, 50), outline_color=(50, 30, 10), outline_width=5, anchor="mm"
-    )
-
-    pc5, pos5 = create_photo_card(get_img(4), w=1020, h=1300, corner_radius=28)
-    # 将收尾大图稍微上移居中
-    pos5 = (pos5[0], 240)
-
-    fs5 = bg.copy()
-    fs5.paste(tc5, (0, 0), tc5)
-    fs5.paste(pc5, pos5, pc5)
-    slides.append(SlideData(fs5.convert("RGB"), tc5, pc5, pos5))
+    slides.append(SlideData(pc5.convert("RGB"), tc5, pc5, pos5))
 
     return slides
