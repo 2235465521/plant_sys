@@ -34,8 +34,11 @@ import {
   getToken,
   startSemanticVideoGeneration,
   getSemanticVideoTaskStatus,
-  VideoTaskStatus
+  VideoTaskStatus,
+  TypographyConfig,
+  DEFAULT_TYPOGRAPHY_CONFIG
 } from "../api";
+import { TypographyStyleEditor } from "../components/TypographyStyleEditor";
 
 
 const { TextArea } = Input;
@@ -87,6 +90,8 @@ function AiVideoStudioCard() {
   const [stylePreset, setStylePreset] = useState("modern_trivia");
   const [useProModel, setUseProModel] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [typography, setTypography] = useState<TypographyConfig>({ ...DEFAULT_TYPOGRAPHY_CONFIG });
+  const [showTypographyDrawer, setShowTypographyDrawer] = useState(false);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<VideoTaskStatus | null>(null);
@@ -153,7 +158,8 @@ function AiVideoStudioCard() {
       const res = await startSemanticVideoGeneration(
         targetPrompt,
         stylePreset,
-        useProModel ? "pro" : "flash"
+        useProModel ? "pro" : "flash",
+        stylePreset === "modern_trivia" ? typography : undefined
       );
       if (res.success && res.task_id) {
         setActiveTaskId(res.task_id);
@@ -210,6 +216,16 @@ function AiVideoStudioCard() {
               <Option value="modern_trivia">🌿 草本趣闻风（老王聊草本）</Option>
               <Option value="ancient">📜 经典古风宣纸画卷</Option>
             </Select>
+            {stylePreset === "modern_trivia" && (
+              <Button
+                size="small"
+                onClick={() => setShowTypographyDrawer(true)}
+                icon={<span className="material-symbols-outlined text-[15px] align-middle">tune</span>}
+                className="rounded-lg text-xs flex items-center gap-1 border-primary/30 hover:border-primary text-primary"
+              >
+                排版与字体定制
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -409,6 +425,46 @@ function AiVideoStudioCard() {
           </div>
         )}
       </Modal>
+
+      <Drawer
+        title={
+          <div className="flex items-center gap-2 font-bold text-gray-100">
+            <span className="material-symbols-outlined text-amber-400">text_fields</span>
+            <span>草本短视频排版与字体定制</span>
+          </div>
+        }
+        open={showTypographyDrawer}
+        onClose={() => setShowTypographyDrawer(false)}
+        width={420}
+        styles={{
+          body: { backgroundColor: "#1e1e20", color: "#f3f4f6" },
+          header: { backgroundColor: "#18181a", borderBottom: "1px solid rgba(255,255,255,0.1)" }
+        }}
+        footer={
+          <div className="flex justify-between items-center py-1">
+            <Button
+              size="small"
+              onClick={() => setTypography({ ...DEFAULT_TYPOGRAPHY_CONFIG })}
+              className="text-gray-400 border-gray-600 bg-transparent hover:!text-white"
+            >
+              恢复默认
+            </Button>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => setShowTypographyDrawer(false)}
+              className="bg-emerald-600 hover:!bg-emerald-500 border-none font-bold"
+            >
+              完成设置
+            </Button>
+          </div>
+        }
+      >
+        <TypographyStyleEditor
+          value={typography}
+          onChange={setTypography}
+        />
+      </Drawer>
     </div>
   );
 }

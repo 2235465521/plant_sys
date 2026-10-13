@@ -16,7 +16,8 @@ import type { MenuProps } from "antd";
 import type { Key } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext, useSearchParams, Link } from "react-router-dom";
-import { api, Plant, getToken, serializeTaxonArrayParams, generatePlantVideo, GenerateVideoRes } from "../api";
+import { api, Plant, getToken, serializeTaxonArrayParams, generatePlantVideo, GenerateVideoRes, DEFAULT_TYPOGRAPHY_CONFIG } from "../api";
+import { TypographyStyleEditor, getTypographyCss } from "../components/TypographyStyleEditor";
 
 interface ListRes {
   items: Plant[];
@@ -245,7 +246,8 @@ export default function PlantsPage() {
     text_effect: "fade_in",
     sticker_effect: "none",
     voice_over: "none",
-    bgm_type: "default"
+    bgm_type: "default",
+    typography: { ...DEFAULT_TYPOGRAPHY_CONFIG }
   });
 
   const openVideoConfig = (plant: Plant) => {
@@ -2126,7 +2128,7 @@ export default function PlantsPage() {
           @keyframes popIn { 0% { opacity: 0; transform: scale(0.5); } 70% { opacity: 1; transform: scale(1.1); } 100% { transform: scale(1); } }
         `}</style>
         
-        <div className="grid grid-cols-12 gap-8 h-[460px]">
+        <div className="grid grid-cols-12 gap-8 h-[540px]">
           {/* 左侧配置区 */}
           <div className="col-span-5 flex flex-col border-r border-[#333] pr-6">
             <Form layout="vertical" className="flex-1 overflow-y-auto pr-2 dark-studio-form">
@@ -2190,7 +2192,7 @@ export default function PlantsPage() {
                   ]}
                 />
               </Form.Item>
-              <Form.Item label="背景音乐 (Background Music)" className="mb-0">
+              <Form.Item label="背景音乐 (Background Music)" className="mb-2">
                 <Select 
                   popupClassName="ios-glass-dropdown"
                   value={videoConfig.bgm_type} 
@@ -2201,6 +2203,13 @@ export default function PlantsPage() {
                   ]}
                 />
               </Form.Item>
+
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <TypographyStyleEditor
+                  value={videoConfig.typography || DEFAULT_TYPOGRAPHY_CONFIG}
+                  onChange={(typo) => setVideoConfig({ ...videoConfig, typography: typo })}
+                />
+              </div>
             </Form>
           </div>
 
@@ -2283,8 +2292,16 @@ export default function PlantsPage() {
                              videoConfig.text_effect === 'pop_in' ? 'popIn 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'none',
                          }}
                        >
-                         <h3 className="text-xl font-bold tracking-widest mb-1 drop-shadow-md">{pickSpeciesLabel(configPlant)}</h3>
-                         <p className="text-[11px] opacity-80 drop-shadow-md line-clamp-3 leading-relaxed">
+                         <h3 
+                           className="text-xl font-bold tracking-widest mb-1 drop-shadow-md"
+                           style={getTypographyCss(videoConfig.typography)}
+                         >
+                           {pickSpeciesLabel(configPlant)}
+                         </h3>
+                         <p 
+                           className="text-[11px] opacity-90 drop-shadow-md line-clamp-3 leading-relaxed"
+                           style={getTypographyCss(videoConfig.typography)}
+                         >
                            {configPlant.morphology_text || "一味珍贵的自然馈赠..."}
                          </p>
                        </div>

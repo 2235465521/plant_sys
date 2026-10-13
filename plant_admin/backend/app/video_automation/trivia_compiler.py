@@ -387,7 +387,8 @@ def compile_trivia_video(
     output_path: str,
     use_pro: bool = False,
     progress_callback: Optional[Callable[[int, str], None]] = None,
-    output_size: Optional[tuple[int, int]] = None
+    output_size: Optional[tuple[int, int]] = None,
+    typography: Optional[Any] = None
 ) -> tuple[bool, str]:
     """
     端到端编译草本趣闻短视频：
@@ -415,7 +416,7 @@ def compile_trivia_video(
 
         if progress_callback:
             progress_callback(40, "正在渲染 1080P 白瓷药材盘与祥云卡片图层...")
-        slides = render_trivia_slides(plant_data, script)
+        slides = render_trivia_slides(plant_data, script, typography=typography)
 
         if progress_callback:
             progress_callback(55, "正在混流人声与轻柔古风背景音乐...")

@@ -41,6 +41,23 @@ export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+export const USERNAME_REGEX = /^[a-zA-Z0-9]{2,32}$/;
+
+export function normalizeUsername(v?: string | null): string {
+  return v ? v.trim().toLowerCase() : "";
+}
+
+export function parseApiErrorMessage(e: unknown, fallback = "操作失败"): string {
+  if (axios.isAxiosError(e)) {
+    const d = e.response?.data as { detail?: string | Array<{ msg?: string }> } | undefined;
+    if (typeof d?.detail === "string") return d.detail;
+    if (Array.isArray(d?.detail)) {
+      return d.detail.map((x) => x.msg).filter(Boolean).join("; ") || fallback;
+    }
+  }
+  return String(e || fallback);
+}
+
 export type Role = "admin" | "user";
 
 export interface LoginRes {
@@ -145,12 +162,29 @@ export interface GenerateVideoRes {
   file_size_bytes: number;
 }
 
+export interface TypographyConfig {
+  slant_deg: number;
+  fill_hex: string;
+  outline_hex: string;
+  outline_width: number;
+  font_preset: "calligraphy" | "kaiti" | "sans";
+}
+
+export const DEFAULT_TYPOGRAPHY_CONFIG: TypographyConfig = {
+  slant_deg: -10,
+  fill_hex: "#FFEE14",
+  outline_hex: "#140F05",
+  outline_width: 4,
+  font_preset: "calligraphy",
+};
+
 export interface VideoStyleConfig {
   transition_style: string | string[];
   text_effect: string;
   sticker_effect: string;
   voice_over: string;
   bgm_type: string;
+  typography?: TypographyConfig;
 }
 
 export async function generatePlantVideo(plantId: number, style?: VideoStyleConfig): Promise<GenerateVideoRes> {
@@ -172,12 +206,14 @@ export interface VideoTaskStatus {
 export async function startSemanticVideoGeneration(
   prompt: string,
   style_preset: string = "ancient",
-  model_mode: string = "flash"
+  model_mode: string = "flash",
+  typography?: TypographyConfig
 ): Promise<{ success: boolean; task_id: string; message: string }> {
   const res = await api.post<{ success: boolean; task_id: string; message: string }>("/video-automation/semantic-generate", {
     prompt,
     style_preset,
-    model_mode
+    model_mode,
+    ...(typography ? { typography } : {})
   });
   return res.data;
 }

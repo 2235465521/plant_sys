@@ -17,6 +17,8 @@ from app.video_automation.image_downloader import ensure_enough_plant_images
 from app.video_automation.frame_renderer import get_6_slide_images
 from app.video_automation.video_compiler import compile_plant_video
 
+from app.video_automation.typography import TypographyStyle
+
 router = APIRouter(prefix="/video-automation", tags=["video-automation"])
 
 class VideoStyleConfig(BaseModel):
@@ -25,6 +27,7 @@ class VideoStyleConfig(BaseModel):
     sticker_effect: str = "none"
     voice_over: str = "none"
     bgm_type: str = "default"
+    typography: Optional[TypographyStyle] = None
 
 
 @router.post("/generate")
@@ -110,6 +113,7 @@ class SemanticGenerateRequest(BaseModel):
     prompt: str
     style_preset: str = "ancient"
     model_mode: str = "flash"  # "flash" | "pro"
+    typography: Optional[TypographyStyle] = None
 
 
 def _update_task(task_id: str, **kwargs):
@@ -118,7 +122,13 @@ def _update_task(task_id: str, **kwargs):
             video_tasks[task_id].update(kwargs)
 
 
-def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, model_mode: str = "flash"):
+def _async_semantic_video_worker(
+    task_id: str,
+    prompt: str,
+    style_preset: str,
+    model_mode: str = "flash",
+    typography: Optional[TypographyStyle] = None
+):
     """后台工作线程：执行语义解析 -> 候选植物检索 -> 视频渲染合成"""
     try:
         model_title = "DeepSeek-Reasoner (Pro)" if model_mode == "pro" else "DeepSeek-Flash"
@@ -174,7 +184,8 @@ def _async_semantic_video_worker(task_id: str, prompt: str, style_preset: str, m
                     plant_data=pdata,
                     output_path=output_path,
                     use_pro=(model_mode == "pro"),
-                    progress_callback=progress_cb
+                    progress_callback=progress_cb,
+                    typography=typography
                 )
                 if not success:
                     _update_task(task_id, status="failed", progress_percentage=100, current_step="趣闻视频压制失败", message=msg)
@@ -260,7 +271,7 @@ def start_semantic_video_generation(
 
     t = threading.Thread(
         target=_async_semantic_video_worker,
-        args=(task_id, req.prompt.strip(), req.style_preset, req.model_mode),
+        args=(task_id, req.prompt.strip(), req.style_preset, req.model_mode, req.typography),
         daemon=True
     )
     t.start()

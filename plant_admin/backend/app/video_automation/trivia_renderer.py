@@ -125,12 +125,18 @@ def render_slanted_line(
     fill: tuple[int, int, int] = (255, 238, 20),
     outline_color: tuple[int, int, int] = (20, 15, 5),
     outline_width: int = 4,
-    shear: float = -0.18
+    shear: float = -0.18,
+    typography: Optional[Any] = None
 ) -> Image.Image:
     """
     渲染带字符级生僻字回退、深黑描边与倾斜仿射变换的单行文字图层。
-    完全对齐《天.MOV》行楷书法 10° 倾角视觉。
+    可直接使用 TypographyStyle 或独立参数。
     """
+    if typography is not None:
+        fill = typography.fill_rgb
+        outline_color = typography.outline_rgb
+        outline_width = typography.outline_width
+        shear = typography.shear_factor
     chars_info = []
     total_w = 0.0
     max_h = 30
@@ -508,7 +514,8 @@ def resolve_plant_images(plant_data: dict[str, Any]) -> list[str]:
 
 def render_trivia_slides(
     plant_data: dict[str, Any],
-    script: TriviaScript
+    script: TriviaScript,
+    typography: Optional[Any] = None
 ) -> list[SlideData]:
     """
     根据草本趣闻脚本生成全部 5 张 SlideData：
@@ -518,6 +525,10 @@ def render_trivia_slides(
     Slide 4: 适生范围（生境高清图 + 耐阴土壤分布）
     Slide 5: 美图收尾（全屏大景深写真赏析）
     """
+    if typography is None:
+        from app.video_automation.typography import TypographyStyle
+        typography = TypographyStyle.preset_benchmark_tian()
+
     slides: list[SlideData] = []
     bg = load_trivia_bg()
     local_images = resolve_plant_images(plant_data)
@@ -602,12 +613,11 @@ def render_trivia_slides(
     if len(clean_aliases) > 18:
         clean_aliases = clean_aliases[:18] + "…"
 
-    f_meta = get_calligraphy_font(52)
-    f_fb = get_cjk_fallback_font(52)
+    f_meta, f_fb = typography.resolve_fonts(52)
 
     def render_meta_line(label: str, val: str) -> Image.Image:
         l_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, (255, 255, 255)) for ch in label]
-        v_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, (255, 238, 20)) for ch in val]
+        v_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, typography.fill_rgb) for ch in val]
         all_chars = l_chars + v_chars
         tot_w = sum(f.getlength(ch) for ch, f, _ in all_chars)
         tot_w_int = int(tot_w) + 60
@@ -616,14 +626,15 @@ def render_trivia_slides(
         ld = ImageDraw.Draw(lay)
         curr_x = 20.0
         y_off = 12
+        ow = typography.outline_width
         for ch, f, col in all_chars:
-            for dx in range(-4, 5):
-                for dy in range(-4, 5):
-                    if dx * dx + dy * dy <= 16:
-                        ld.text((curr_x + dx, y_off + dy), ch, fill=(20, 15, 5), font=f)
+            for dx in range(-ow, ow + 1):
+                for dy in range(-ow, ow + 1):
+                    if dx * dx + dy * dy <= ow * ow:
+                        ld.text((curr_x + dx, y_off + dy), ch, fill=typography.outline_rgb, font=f)
             ld.text((curr_x, y_off), ch, fill=col, font=f)
             curr_x += f.getlength(ch)
-        m = (1, -0.18, 0.18 * (tot_h_int / 2), 0, 1, 0)
+        m = (1, typography.shear_factor, -typography.shear_factor * (tot_h_int / 2), 0, 1, 0)
         return lay.transform((tot_w_int + 25, tot_h_int), Image.Transform.AFFINE, m, Image.Resampling.BILINEAR)
 
     m1 = render_meta_line("别名：", clean_aliases)
@@ -654,15 +665,13 @@ def render_trivia_slides(
                 pass
 
         # 底部倾斜行楷爆款文字排版
-        f_calli = get_calligraphy_font(54)
-        f_fallback = get_cjk_fallback_font(54)
+        f_calli, f_fallback = typography.resolve_fonts(54)
 
         wrapped_lines = wrap_text_cjk(text, f_calli, max_width=820)
         n_lines = len(wrapped_lines)
 
         if n_lines > 4:
-            f_calli = get_calligraphy_font(50)
-            f_fallback = get_cjk_fallback_font(50)
+            f_calli, f_fallback = typography.resolve_fonts(50)
             wrapped_lines = wrap_text_cjk(text, f_calli, max_width=820)
             line_height = 72
             y_start = 1255
@@ -681,10 +690,10 @@ def render_trivia_slides(
                 line,
                 primary_font=f_calli,
                 fallback_font=f_fallback,
-                fill=(255, 238, 20),
-                outline_color=(20, 15, 5),
-                outline_width=4,
-                shear=-0.18
+                fill=typography.fill_rgb,
+                outline_color=typography.outline_rgb,
+                outline_width=typography.outline_width,
+                shear=typography.shear_factor
             )
             tc.paste(s_line, (x_start, curr_y), s_line)
             curr_y += line_height
