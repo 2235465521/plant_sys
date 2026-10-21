@@ -212,7 +212,7 @@ export const TypographyStyleEditor: React.FC<TypographyStyleEditorProps> = ({
 
       {/* 字体形态选择 */}
       <div>
-        <label className="text-gray-300 block mb-1.5">书法字体形态</label>
+        <label className="text-gray-300 block mb-1.5">正文字体</label>
         <Radio.Group
           value={value.font_preset}
           onChange={(e) => onChange({ ...value, font_preset: e.target.value })}
@@ -220,7 +220,7 @@ export const TypographyStyleEditor: React.FC<TypographyStyleEditorProps> = ({
           className="w-full flex gap-2"
         >
           <Radio.Button value="calligraphy" className="flex-1 text-center !bg-white/5 !border-white/10 !text-gray-300">
-            行楷书法
+            琥珀圆体
           </Radio.Button>
           <Radio.Button value="kaiti" className="flex-1 text-center !bg-white/5 !border-white/10 !text-gray-300">
             端庄楷体
@@ -271,7 +271,7 @@ export function getTypographyCss(typography?: TypographyConfig): React.CSSProper
         : "none",
     fontFamily:
       t.font_preset === "calligraphy"
-        ? '"STXingkai", "华文行楷", cursive'
+        ? '"STHupo", "华文琥珀", "YouYuan", "幼圆", sans-serif'
         : t.font_preset === "kaiti"
         ? '"STKaiti", "楷体", serif'
         : 'system-ui, -apple-system, sans-serif',

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 trivia_compiler.py - 草本趣闻短视频编译引擎 (Modern Trivia Video Compiler)
-负责将 trivia_renderer 渲染的 5 张 SlideData 与 Edge-TTS 配音解说、轻柔 BGM、3D 卷轴翻页转场进行音画同步压制。
+负责将 trivia_renderer 的分层画面与 Edge-TTS 配音、轻柔 BGM 压成约 20 秒成片。
+幕与幕之间硬切；封面药材盘放大、文字依次入场，收尾照片推近。
 """
 from __future__ import annotations
 
@@ -24,8 +25,10 @@ from app.video_automation.trivia_script import TriviaScript, generate_trivia_scr
 VOICE_DEFAULT = "zh-CN-YunxiNeural"   # 阳光活泼中青年科普男声（最契合短视频）
 VOICE_RATE = "+30%"                   # +30% 紧凑快节奏短视频语速
 FPS = 30
-TRANSITION_FRAMES = 15                # 0.5 秒快节奏平滑转场 (4 * 15 = 60 帧)
+TRANSITION_FRAMES = 0                 # 样片是硬切，转场不占额外帧；动效做在每一幕内部
 TARGET_TOTAL_SECONDS = 20.0           # 严格控制全片总时长在 20 秒 (600 帧)
+# 对标《天.MOV》五幕时长：封面 4.1s / 形态 5.0s / 趣闻 4.0s / 生境 4.0s / 收尾 3.0s
+SCENE_FRAMES_20S = [123, 149, 119, 120, 89]
 
 
 def get_audio_duration_seconds(audio_path: str) -> float:
@@ -139,6 +142,21 @@ def generate_narration_chunks(
     return results
 
 
+def plan_scene_frames(durations: list[float], fps: int = FPS) -> list[int]:
+    """
+    默认按样片五幕时长占满 20 秒。
+    某一幕配音比画面更长时，只把那一幕加长，避免人声被切断。
+    """
+    planned = list(SCENE_FRAMES_20S)
+    if len(durations) != len(planned):
+        return compute_slide_static_frames(durations, fps=fps)
+    for i, dur in enumerate(durations):
+        need = int(dur * fps) + 8
+        if planned[i] < need:
+            planned[i] = need
+    return planned
+
+
 def compute_slide_static_frames(
     durations: list[float],
     fps: int = FPS,
@@ -238,6 +256,65 @@ def draw_photo_transition(
         frame.paste(next_faded, (next_slide.photo_pos[0] + dx2, next_slide.photo_pos[1] + dy2), next_faded)
 
 
+def _ramp(t: float, t0: float, t1: float) -> float:
+    """平滑入场进度，0 到 1。"""
+    if t <= t0:
+        return 0.0
+    if t >= t1:
+        return 1.0
+    x = (t - t0) / (t1 - t0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _paste_alpha(frame: Image.Image, layer: Optional[Image.Image], alpha: float) -> None:
+    if layer is None or alpha <= 0.012:
+        return
+    img = layer if alpha >= 0.985 else apply_photo_opacity(layer, alpha)
+    frame.paste(img, (0, 0), img)
+
+
+def _paste_scaled_center(
+    frame: Image.Image,
+    photo: Image.Image,
+    pos: tuple[int, int],
+    scale: float,
+    alpha: float
+) -> None:
+    """绕原卡片中心缩放。封面药材盘用它从大约 70% 放大到 100%。"""
+    if alpha <= 0.012:
+        return
+    w, h = photo.size
+    nw = max(1, int(w * scale))
+    nh = max(1, int(h * scale))
+    resized = photo.resize((nw, nh), Image.Resampling.BILINEAR)
+    if alpha < 0.985:
+        resized = apply_photo_opacity(resized, alpha)
+    x = int(pos[0] + w / 2 - nw / 2)
+    y = int(pos[1] + h / 2 - nh / 2)
+    frame.paste(resized, (x, y), resized)
+
+
+def _ending_zoom_frame(hi: Image.Image, zoom: float) -> Image.Image:
+    """
+    收尾镜头推近。zoom=1 显示整幅，zoom=1.13 对准画面中心放大，和样片前半秒一致。
+    """
+    w, h = hi.size
+    zoom = max(1.0, zoom)
+    cw = max(2, int(w / zoom))
+    ch = max(2, int(h / zoom))
+    target_ratio = V_WIDTH / float(V_HEIGHT)
+    if cw / float(ch) > target_ratio:
+        cw = max(2, int(ch * target_ratio))
+    else:
+        ch = max(2, int(cw / target_ratio))
+    x = max(0, (w - cw) // 2)
+    y = max(0, (h - ch) // 2)
+    cw = min(cw, w - x)
+    ch = min(ch, h - y)
+    crop = hi.crop((x, y, x + cw, y + ch))
+    return crop.resize((V_WIDTH, V_HEIGHT), Image.Resampling.BILINEAR).convert("RGB")
+
+
 def generate_trivia_frames(
     slides: list[SlideData],
     static_frames: list[int],
@@ -245,44 +322,54 @@ def generate_trivia_frames(
     output_size: Optional[tuple[int, int]] = None
 ) -> Generator[Image.Image, None, None]:
     """
-    生成草本趣闻风的全部连续帧：
-    - 精确按 static_frames[i] 停留
-    - 转场：文字 Cross-Fade，中间卡片 Smooth Scale & Cross-Fade
+    按《天.MOV》节奏出帧，幕与幕之间硬切：
+    - 封面：药材盘从小放大，标题、药用部位、拼音、大名、别名依次淡入
+    - 内容幕：照片先到位，标题再出，黄字和星轨随后淡入，照片本身不再慢慢缩放
+    - 收尾：全屏照片在约 0.5 秒内推近到 1.13 倍后停住
     """
-    num_slides = len(slides)
-    bg = load_trivia_bg()
+    bg = load_trivia_bg().convert("RGBA")
 
     def _out(img: Image.Image) -> Image.Image:
+        if img.mode != "RGB":
+            img = img.convert("RGB")
         if output_size is not None and output_size != img.size:
             return img.resize(output_size, Image.Resampling.BILINEAR)
         return img
 
-    for i in range(num_slides):
-        curr_slide = slides[i]
-        next_slide = slides[(i + 1) % num_slides]
+    for i, slide in enumerate(slides):
         n_frames = static_frames[i] if i < len(static_frames) else 90
+        kind = getattr(slide, "kind", "")
+        layers = getattr(slide, "layers", None) or {}
 
-        # 本幕停留
-        for _ in range(n_frames):
-            yield _out(curr_slide.full_slide)
-
-        # 最后一幕直接结束，不进行后续翻页
-        if i == num_slides - 1:
-            break
-
-        # 快节奏平滑转场帧 (TRANSITION_FRAMES = 15 帧)
-        for k in range(TRANSITION_FRAMES):
-            ease = (k + 1) / float(TRANSITION_FRAMES + 1)
-            frame = bg.copy()
-
-            # 文字淡入淡出
-            curr_t = apply_photo_opacity(curr_slide.text_canvas, 1.0 - ease)
-            next_t = apply_photo_opacity(next_slide.text_canvas, ease)
-            frame.paste(curr_t, (0, 0), curr_t)
-            frame.paste(next_t, (0, 0), next_t)
-
-            draw_photo_transition(frame, curr_slide, next_slide, ease)
-            yield _out(frame.convert("RGB"))
+        for k in range(n_frames):
+            t = k / float(fps)
+            if kind == "cover":
+                frame = bg.copy()
+                dish_scale = 0.70 + 0.30 * _ramp(t, 0.28, 0.68)
+                _paste_scaled_center(
+                    frame, slide.photo_canvas, slide.photo_pos,
+                    dish_scale, _ramp(t, 0.16, 0.42)
+                )
+                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.26, 0.78))
+                _paste_alpha(frame, layers.get("badge"), _ramp(t, 0.42, 0.86))
+                _paste_alpha(frame, layers.get("orbit"), _ramp(t, 1.20, 1.90))
+                _paste_alpha(frame, layers.get("pinyin"), _ramp(t, 0.98, 1.48))
+                _paste_alpha(frame, layers.get("name"), _ramp(t, 1.16, 1.70))
+                _paste_alpha(frame, layers.get("meta"), _ramp(t, 1.32, 2.05))
+                yield _out(frame)
+            elif kind == "content":
+                frame = bg.copy()
+                frame.paste(slide.photo_canvas, slide.photo_pos, slide.photo_canvas)
+                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.10, 0.55))
+                caption_alpha = _ramp(t, 0.42, 1.00)
+                _paste_alpha(frame, layers.get("orbit"), caption_alpha)
+                _paste_alpha(frame, layers.get("caption"), caption_alpha)
+                yield _out(frame)
+            elif kind == "ending":
+                zoom = 1.0 + 0.13 * _ramp(t, 0.06, 0.52)
+                yield _out(_ending_zoom_frame(slide.photo_canvas, zoom))
+            else:
+                yield _out(slide.full_slide)
 
 
 def build_final_audio(
@@ -412,7 +499,7 @@ def compile_trivia_video(
             progress_callback(25, "正在合成 Edge-TTS 阳光科普男声配音...")
         chunks = generate_narration_chunks(script, str(temp_dir))
         durations = [dur for _, dur in chunks]
-        static_frames = compute_slide_static_frames(durations, fps=FPS, target_total_seconds=TARGET_TOTAL_SECONDS)
+        static_frames = plan_scene_frames(durations, fps=FPS)
 
         if progress_callback:
             progress_callback(40, "正在渲染 1080P 白瓷药材盘与祥云卡片图层...")
@@ -425,7 +512,7 @@ def compile_trivia_video(
         has_audio = build_final_audio(chunks, static_frames, mixed_audio_p, bgm_p, fps=FPS)
 
         if progress_callback:
-            progress_callback(70, "正在执行 3D 卷轴翻页与 H.264 视频压制...")
+            progress_callback(70, "正在按样片节奏合成入场、放大与收尾推近...")
 
         w, h = output_size if output_size else (V_WIDTH, V_HEIGHT)
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()

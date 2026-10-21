@@ -142,7 +142,7 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     # 3. 形态特征 (画面 50~75 字，朗读 12~15 字)
     morph_raw = str(plant_data.get("morphology_text") or "").strip()
     if "天葵" in name:
-        morph_text = "多年生小草本，高10-30厘米。块根小，纺锤形或近球形。茎纤细，中部以上分枝。基生叶多数，掌状三出复叶，小叶扇状倒卵形。"
+        morph_text = "多年生小草本；块根肉质，纺锤形或椭圆形；基生叶掌状三出复叶，小叶再分裂；花小，白色，花瓣匙形；蓇葖果，种子多数；花期3-4月，果期4-5月。"
         morph_spoken = "块根纺锤形，早春开小白花。"
     elif "虎眼万年青" in name:
         morph_text = "鳞茎卵球形，绿色，直径可达10厘米。叶5-6枚，带状或长条状披针形，长30-60厘米，宽2.5-5厘米，先端尾状并常扭转，常绿，近革质。"
@@ -159,8 +159,8 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
 
     # 4. 植物趣闻 (画面 50~75 字，朗读 12~15 字)
     if "天葵" in name:
-        trivia_text = "天葵的块根干燥后形如老鼠屎，故民间又称千年老鼠屎、雷丸草。早春萌发开花，初夏地上部分枯萎，具有冬生夏眠的奇特物候。"
-        trivia_spoken = "块根形似鼠屎，物候奇特。"
+        trivia_text = "名字“千年老鼠屎”来自块根外形，它生长节奏特殊，秋萌夏枯，和多数植物相反，入夏地上植株便悄然隐没。"
+        trivia_spoken = "块根形似鼠屎，秋萌夏枯。"
     elif "虎眼万年青" in name:
         trivia_text = "虎眼万年青每长出一片叶，鳞茎便会长出如虎眼般的小球，象征多子多福。民间常用其鳞茎消肿解毒，是兼具药用与绿化的奇妙植物。"
         trivia_spoken = "鳞茎萌发小球，寓意多子多福。"
@@ -188,8 +188,8 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     dist_raw = str(plant_data.get("distribution_china") or "").strip()
 
     if "天葵" in name:
-        habitat_text = "喜阴凉湿润气候，常生于海拔100-1000米的山野山坡林下、草丛水沟边或路旁阴湿处。产于我国长江中下游及华南、西南等省区。"
-        habitat_spoken = "喜阴凉湿润，在长江流域多见。"
+        habitat_text = "喜阴凉湿润环境，耐半阴，忌强光暴晒；适合疏松排水良好的砂质壤土，多野生于林下、路旁、山坡草丛，我国长江流域以南多地有分布。"
+        habitat_spoken = "喜阴凉湿润，长江以南多见。"
     elif "虎眼万年青" in name:
         habitat_text = "原产非洲南部，现我国各地广泛引种栽培。喜温暖湿润与阳光充足环境，稍耐阴，常用作盆栽观赏与绿化点缀。"
         habitat_spoken = "喜温湿环境，各地广泛栽培。"
@@ -210,6 +210,11 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
         else:
             habitat_text = "喜温湿气候，常生于山野林下、草丛水沟边及路旁阴湿处。我国多省区均有分布，生命力旺盛。"
             habitat_spoken = "喜温暖湿润环境，山野林下多见。"
+
+    if "天葵" in name:
+        cover_badge = "干燥块根入药"
+        aliases_str = "千年老鼠屎、雷丸草"
+        fg_str = "毛茛科 天葵属"
 
     return TriviaScript(
         plant_name=name,
@@ -249,8 +254,9 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
 
     prompt = f"""你是一名资深短视频中草药科普博主（类似《老王聊草本》风格）。
 请根据以下资料，为植物《{name}》制作一段【严格控制在20秒总时长】的图文解说脚本！
+文案口气对标短视频样片《天葵》：短句、分号串联、一句一件事，不要抒情空话。
 【极端重要规则】：
-1. 画面展卡文本（*_text）：必须为50~70字完整优美句子（显示在卡片下方，排版约3~4行），严禁半截断句！
+1. 画面展卡文本（*_text）：55~75字，排成大约4~5行。形态写株型、根、叶、花、果和花期果期，用分号连接。趣闻先解释一个别名的来历，再写一个和多数植物不一样的物候。生境写喜什么、耐什么、忌什么，适合什么土，多野生在哪里，我国哪里有分布。严禁半截断句。
 2. 语音旁白文本（*_spoken）：必须为14~18字超精炼短句（由配音员朗读，语速快节奏），严禁长句！
 
 植物资料：

@@ -192,7 +192,7 @@ function AiVideoStudioCard() {
             AI 视频创作工坊 (Semantic Video Studio)
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            输入自然语言指令，AI 将通过 DeepSeek 语义解析匹配植物，一键为您自动化生成古风画卷或专题合集短视频。
+            输入自然语言指令，AI 将通过 DeepSeek 语义解析匹配植物，按样片节奏生成约 20 秒的草本趣闻短视频或专题合集。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 shrink-0">
