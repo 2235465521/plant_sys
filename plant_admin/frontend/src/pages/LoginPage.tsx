@@ -1,21 +1,21 @@
 import { Button, Card, Form, Input, Typography, message } from "antd";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { api, LoginRes, setToken } from "../api";
+import { api, type LoginRes, USERNAME_REGEX, normalizeUsername, parseApiErrorMessage, setToken } from "../api";
 
 export default function LoginPage() {
   const nav = useNavigate();
 
   async function onFinish(v: { username: string; password: string }) {
     try {
-      const { data } = await api.post<LoginRes>("/auth/login", v);
+      const normalizedUsername = normalizeUsername(v.username);
+      const { data } = await api.post<LoginRes>("/auth/login", {
+        username: normalizedUsername,
+        password: v.password,
+      });
       setToken(data.access_token);
       nav("/plants", { replace: true });
     } catch (e: unknown) {
-      if (axios.isAxiosError(e)) {
-        const d = e.response?.data as { detail?: string } | undefined;
-        message.error(typeof d?.detail === "string" ? d.detail : "登录失败");
-      } else message.error(String(e));
+      message.error(parseApiErrorMessage(e, "登录失败"));
     }
   }
 
@@ -33,10 +33,21 @@ export default function LoginPage() {
             无账号可前往注册（若管理员已开放）。
           </Typography.Paragraph>
           <Form layout="vertical" onFinish={onFinish} size="large">
-            <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
-              <Input autoComplete="username" placeholder="登录用户名" />
+            <Form.Item
+              name="username"
+              label="用户名"
+              normalize={normalizeUsername}
+              rules={[
+                { required: true, message: "请输入用户名" },
+                {
+                  pattern: USERNAME_REGEX,
+                  message: "用户名仅允许 2~32 位纯英文字母、纯数字或英文+数字组合",
+                },
+              ]}
+            >
+              <Input autoComplete="username" placeholder="登录用户名（纯英文、纯数字或英文+数字）" />
             </Form.Item>
-            <Form.Item name="password" label="密码" rules={[{ required: true }]}>
+            <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
               <Input.Password autoComplete="current-password" placeholder="密码" />
             </Form.Item>
             <Button type="primary" htmlType="submit" block size="large">

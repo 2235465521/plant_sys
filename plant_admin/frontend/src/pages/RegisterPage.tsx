@@ -1,17 +1,15 @@
-import { Alert, Button, Card, Form, Input, Select, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Input, Typography, message } from "antd";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { api, type LoginRes, type RegisterStatus, setToken } from "../api";
-
-function errMsg(e: unknown): string {
-  if (axios.isAxiosError(e)) {
-    const d = e.response?.data as { detail?: string | Array<{ msg?: string }> } | undefined;
-    if (typeof d?.detail === "string") return d.detail;
-    if (Array.isArray(d?.detail)) return d.detail.map((x) => x.msg).filter(Boolean).join("; ") || "请求无效";
-  }
-  return String(e);
-}
+import {
+  api,
+  type LoginRes,
+  type RegisterStatus,
+  USERNAME_REGEX,
+  normalizeUsername,
+  parseApiErrorMessage,
+  setToken,
+} from "../api";
 
 function RegisterForm({
   status,
@@ -20,8 +18,6 @@ function RegisterForm({
   status: RegisterStatus;
   onFinish: (v: {
     username: string;
-    password: string;
-    password_confirm: string;
     role?: "admin" | "user";
   }) => void;
 }) {
@@ -31,14 +27,20 @@ function RegisterForm({
         填写登录用户名即可注册，初始密码默认为 <strong>zkbz2026</strong>。
       </Typography.Paragraph>
       <Form layout="vertical" onFinish={onFinish} initialValues={{ role: "user" }} size="large">
-
         <Form.Item
           name="username"
           label="登录用户名"
-          extra="至少 2 个字符，用于以后登录。"
-          rules={[{ required: true, min: 2, max: 64 }]}
+          extra="2~32 位纯英文字母、纯数字或英文+数字组合，将自动转为小写。"
+          normalize={normalizeUsername}
+          rules={[
+            { required: true, message: "请输入登录用户名" },
+            {
+              pattern: USERNAME_REGEX,
+              message: "用户名仅允许 2~32 位纯英文字母、纯数字或英文+数字组合",
+            },
+          ]}
         >
-          <Input autoComplete="username" placeholder="例如 zhangsan" />
+          <Input autoComplete="username" placeholder="例如 zhangsan 或 user01" />
         </Form.Item>
 
         <Button type="primary" htmlType="submit" block size="large">
@@ -69,8 +71,9 @@ export default function RegisterPage() {
   }) {
     if (!status) return;
     try {
+      const normalizedUsername = normalizeUsername(v.username);
       const { data } = await api.post<LoginRes>("/auth/register", {
-        username: v.username,
+        username: normalizedUsername,
         password: "zkbz2026",
         password_confirm: "zkbz2026",
         role: status.allow_admin ? ((v.role ?? "user") as "admin" | "user") : "user",
@@ -79,7 +82,7 @@ export default function RegisterPage() {
       message.success("注册成功");
       nav("/plants", { replace: true });
     } catch (e: unknown) {
-      message.error(errMsg(e));
+      message.error(parseApiErrorMessage(e, "注册失败"));
     }
   }
 

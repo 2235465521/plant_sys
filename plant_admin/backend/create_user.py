@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.auth_utils import hash_password
 from app.database import connect_mysql
+from app.schemas import normalize_and_validate_username
 
 
 def main() -> None:
@@ -27,12 +28,18 @@ def main() -> None:
     )
     args = p.parse_args()
 
+    try:
+        username = normalize_and_validate_username(args.username)
+    except ValueError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        sys.exit(1)
+
     conn = connect_mysql()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id FROM plant_admin_users WHERE username = %s",
-                (args.username,),
+                (username,),
             )
             row = cur.fetchone()
         if row:
@@ -42,19 +49,19 @@ def main() -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE plant_admin_users SET password_hash = %s, role = %s WHERE username = %s",
-                    (hash_password(args.password), args.role, args.username),
+                    (hash_password(args.password), args.role, username),
                 )
             conn.commit()
-            print(f"已更新: {args.username}，角色={args.role}")
+            print(f"已更新: {username}，角色={args.role}")
         else:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO plant_admin_users (username, password_hash, role) VALUES (%s, %s, %s)",
-                    (args.username, hash_password(args.password), args.role),
+                    (username, hash_password(args.password), args.role),
                 )
                 new_id = cur.lastrowid
             conn.commit()
-            print(f"已创建: {args.username} id={new_id} 角色={args.role}")
+            print(f"已创建: {username} id={new_id} 角色={args.role}")
     finally:
         conn.close()
 

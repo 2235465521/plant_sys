@@ -5,7 +5,7 @@ from app.auth_utils import create_access_token, get_current_user, hash_password,
 from app.config import get_settings
 from app.database import get_db
 from app.models import PlantAdminUser
-from app.schemas import LoginRequest, RegisterRequest, RegisterStatus, TokenResponse, UserBrief
+from app.schemas import ChangePasswordRequest, LoginRequest, RegisterRequest, RegisterStatus, TokenResponse, UserBrief, UserRoleUpdate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -53,11 +53,12 @@ def login(body: LoginRequest, conn: pymysql.connections.Connection = Depends(get
         raise HTTPException(401, "用户名或密码错误")
     if not row["is_active"]:
         raise HTTPException(403, "账号已停用")
-    token = create_access_token(int(row["id"]), row["username"], str(row["role"]))
+    canonical_username = str(row["username"]).strip().lower()
+    token = create_access_token(int(row["id"]), canonical_username, str(row["role"]))
     return TokenResponse(
         access_token=token,
         role=row["role"],
-        username=row["username"],
+        username=canonical_username,
     )
 
 
@@ -76,8 +77,6 @@ def list_users(conn: pymysql.connections.Connection = Depends(get_db), current_u
     return [UserBrief(**r) for r in rows]
 
 
-from app.schemas import UserRoleUpdate
-
 @router.put("/users/{user_id}/role")
 def update_user_role(user_id: int, body: UserRoleUpdate, conn: pymysql.connections.Connection = Depends(get_db), current_user: PlantAdminUser = Depends(get_current_user)):
     if current_user.role != "admin":
@@ -88,3 +87,21 @@ def update_user_role(user_id: int, body: UserRoleUpdate, conn: pymysql.connectio
         cur.execute("UPDATE plant_admin_users SET role = %s WHERE id = %s", (body.role, user_id))
     conn.commit()
     return {"status": "ok"}
+
+
+@router.post("/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    conn: pymysql.connections.Connection = Depends(get_db),
+    current_user: PlantAdminUser = Depends(get_current_user),
+):
+    if not verify_password(body.old_password, current_user.password_hash):
+        raise HTTPException(400, "原密码错误")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE plant_admin_users SET password_hash = %s WHERE id = %s",
+            (hash_password(body.new_password), current_user.id),
+        )
+    conn.commit()
+    return {"status": "ok", "message": "密码修改成功"}
+

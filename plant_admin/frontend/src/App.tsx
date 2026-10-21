@@ -1,4 +1,4 @@
-import { Modal, Table, Button, message } from "antd";
+import { Modal, Table, Button, Form, Input, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import {
   Link,
@@ -15,7 +15,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import PlantsPage from "./pages/PlantsPage";
 import FeaturesPage from "./pages/FeaturesPage";
-import { PLANT_SIDEBAR_FLASH_EVENT, api, getToken, setToken } from "./api";
+import { PLANT_SIDEBAR_FLASH_EVENT, api, getToken, parseApiErrorMessage, setToken } from "./api";
 
 type TaxonBucketDto = { value: string; count: number };
 
@@ -97,6 +97,102 @@ function UserManagementModal({ open, onCancel, currentUserId }: { open: boolean;
   );
 }
 
+interface ChangePasswordFormValues {
+  old_password: string;
+  new_password: string;
+  password_confirm: string;
+}
+
+function ChangePasswordModal({ open, onCancel }: { open: boolean; onCancel: () => void }) {
+  const [form] = Form.useForm<ChangePasswordFormValues>();
+  const [loading, setLoading] = useState(false);
+
+  const handleFinish = async (values: ChangePasswordFormValues) => {
+    setLoading(true);
+    try {
+      await api.post("/auth/change-password", {
+        old_password: values.old_password,
+        new_password: values.new_password,
+        password_confirm: values.password_confirm,
+      });
+      message.success("密码修改成功");
+      form.resetFields();
+      onCancel();
+    } catch (e: unknown) {
+      message.error(parseApiErrorMessage(e, "密码修改失败"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="修改登录密码"
+      open={open}
+      onCancel={() => {
+        form.resetFields();
+        onCancel();
+      }}
+      footer={null}
+      width={420}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" onFinish={handleFinish} style={{ marginTop: 16 }}>
+        <Form.Item
+          name="old_password"
+          label="原密码"
+          rules={[{ required: true, message: "请输入原密码" }]}
+        >
+          <Input.Password placeholder="输入当前使用的密码" />
+        </Form.Item>
+        <Form.Item
+          name="new_password"
+          label="新密码"
+          dependencies={["old_password"]}
+          rules={[
+            { required: true, message: "请输入新密码" },
+            { min: 6, max: 128, message: "新密码长度须为 6~128 位" },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (value && getFieldValue("old_password") && value === getFieldValue("old_password")) {
+                  return Promise.reject(new Error("新密码不得与原密码相同"));
+                }
+                return Promise.resolve();
+              },
+            }),
+          ]}
+        >
+          <Input.Password placeholder="新密码（至少 6 位）" />
+        </Form.Item>
+        <Form.Item
+          name="password_confirm"
+          label="确认新密码"
+          dependencies={["new_password"]}
+          rules={[
+            { required: true, message: "请再次输入新密码" },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!value || getFieldValue("new_password") === value) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error("两次输入的新密码不一致"));
+              },
+            }),
+          ]}
+        >
+          <Input.Password placeholder="再次输入新密码" />
+        </Form.Item>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+          <Button onClick={onCancel}>取消</Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            确认修改
+          </Button>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
 function AppShell() {
   const loc = useLocation();
   const nav = useNavigate();
@@ -104,6 +200,7 @@ function AppShell() {
   const onPlantsPage = loc.pathname === "/plants" || loc.pathname === "/plants/";
   const [sidebarFlash, setSidebarFlash] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
+  const [changePwdOpen, setChangePwdOpen] = useState(false);
 
   // Tree path: each level's selected value (empty string = not selected)
   const treeDiv = onPlantsPage ? (sp.get("division") ?? "") : "";
@@ -624,6 +721,15 @@ function AppShell() {
                 manage_accounts
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setChangePwdOpen(true)}
+              className="material-symbols-outlined rounded-full p-1.5 text-on-surface-variant transition-colors hover:bg-secondary-container/10"
+              aria-label="修改密码"
+              title="修改密码"
+            >
+              key
+            </button>
             <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-outline-variant bg-primary-container text-xs font-semibold text-on-primary">
               {displayName.slice(0, 1).toUpperCase()}
             </div>
@@ -654,6 +760,10 @@ function AppShell() {
           currentUserId={payload.sub ? Number(payload.sub) : undefined}
         />
       )}
+      <ChangePasswordModal
+        open={changePwdOpen}
+        onCancel={() => setChangePwdOpen(false)}
+      />
     </div>
   );
 }

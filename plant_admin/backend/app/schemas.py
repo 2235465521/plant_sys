@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+USERNAME_REGEX = re.compile(r"^[a-z0-9]{2,32}$")
+
+
+def normalize_and_validate_username(v: str) -> str:
+    s = (v or "").strip().lower()
+    if not USERNAME_REGEX.match(s):
+        raise ValueError("用户名仅允许 2~32 位纯英文字母、纯数字或英文与数字组合")
+    return s
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def validate_username(cls, v: Any) -> str:
+        return normalize_and_validate_username(str(v) if v is not None else "")
 
 
 class TokenResponse(BaseModel):
@@ -25,22 +40,34 @@ class RegisterStatus(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=2, max_length=32)
     password: str = Field(min_length=6, max_length=128)
     password_confirm: str = Field(min_length=1, max_length=128)
     role: Literal["admin", "user"] = "user"
 
-    @field_validator("username")
+    @field_validator("username", mode="before")
     @classmethod
-    def username_strip(cls, v: str) -> str:
-        return v.strip()
+    def validate_username(cls, v: Any) -> str:
+        return normalize_and_validate_username(str(v) if v is not None else "")
 
     @model_validator(mode="after")
     def check_passwords(self) -> RegisterRequest:
         if self.password != self.password_confirm:
             raise ValueError("两次输入的密码不一致")
-        if len(self.username) < 2:
-            raise ValueError("用户名至少 2 个字符")
+        return self
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
+    password_confirm: str = Field(min_length=6, max_length=128)
+
+    @model_validator(mode="after")
+    def check_new_passwords(self) -> ChangePasswordRequest:
+        if self.new_password != self.password_confirm:
+            raise ValueError("两次输入的新密码不一致")
+        if self.new_password == self.old_password:
+            raise ValueError("新密码不得与旧密码相同")
         return self
 
 
