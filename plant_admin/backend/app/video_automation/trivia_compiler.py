@@ -256,6 +256,19 @@ def draw_photo_transition(
         frame.paste(next_faded, (next_slide.photo_pos[0] + dx2, next_slide.photo_pos[1] + dy2), next_faded)
 
 
+def _piecewise(t: float, keys: list[tuple[float, float]]) -> float:
+    """按样片实测时间点做分段线性插值。"""
+    if t <= keys[0][0]:
+        return keys[0][1]
+    if t >= keys[-1][0]:
+        return keys[-1][1]
+    for (t0, v0), (t1, v1) in zip(keys, keys[1:]):
+        if t0 <= t <= t1:
+            u = (t - t0) / (t1 - t0)
+            return v0 + (v1 - v0) * u
+    return keys[-1][1]
+
+
 def _ramp(t: float, t0: float, t1: float) -> float:
     """平滑入场进度，0 到 1。"""
     if t <= t0:
@@ -345,23 +358,23 @@ def generate_trivia_frames(
             t = k / float(fps)
             if kind == "cover":
                 frame = bg.copy()
-                dish_scale = 0.70 + 0.30 * _ramp(t, 0.28, 0.68)
+                dish_scale = _piecewise(t, [(0.22, 0.57), (0.35, 0.73), (0.50, 0.86), (0.65, 1.0)])
                 _paste_scaled_center(
                     frame, slide.photo_canvas, slide.photo_pos,
                     dish_scale, _ramp(t, 0.16, 0.42)
                 )
-                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.26, 0.78))
-                _paste_alpha(frame, layers.get("badge"), _ramp(t, 0.42, 0.86))
+                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.22, 0.80))
+                _paste_alpha(frame, layers.get("badge"), _ramp(t, 0.42, 0.85))
                 _paste_alpha(frame, layers.get("orbit"), _ramp(t, 1.20, 1.90))
-                _paste_alpha(frame, layers.get("pinyin"), _ramp(t, 0.98, 1.48))
-                _paste_alpha(frame, layers.get("name"), _ramp(t, 1.16, 1.70))
-                _paste_alpha(frame, layers.get("meta"), _ramp(t, 1.32, 2.05))
+                _paste_alpha(frame, layers.get("pinyin"), _ramp(t, 1.00, 1.50))
+                _paste_alpha(frame, layers.get("name"), _ramp(t, 1.15, 1.75))
+                _paste_alpha(frame, layers.get("meta"), _ramp(t, 1.35, 2.10))
                 yield _out(frame)
             elif kind == "content":
                 frame = bg.copy()
                 frame.paste(slide.photo_canvas, slide.photo_pos, slide.photo_canvas)
-                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.10, 0.55))
-                caption_alpha = _ramp(t, 0.42, 1.00)
+                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.12, 0.62))
+                caption_alpha = _ramp(t, 0.48, 1.02)
                 _paste_alpha(frame, layers.get("orbit"), caption_alpha)
                 _paste_alpha(frame, layers.get("caption"), caption_alpha)
                 yield _out(frame)

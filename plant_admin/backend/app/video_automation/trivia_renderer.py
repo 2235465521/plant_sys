@@ -10,6 +10,7 @@ trivia_renderer.py - 草本趣闻短视频画面渲染模块 (Modern Trivia Styl
 """
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -119,6 +120,37 @@ def get_cjk_fallback_font(size: int) -> ImageFont.FreeTypeFont:
     return get_system_font(size, bold=True)
 
 
+def _thick_fallback_glyph(
+    ch: str,
+    fallback_font: ImageFont.FreeTypeFont,
+    primary_font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int],
+    outline: tuple[int, int, int],
+    outline_w: int,
+) -> Image.Image:
+    """把缺字的粗黑体膨胀到和琥珀体「年」差不多的字高、笔画粗细。"""
+    canvas = Image.new("L", (fallback_font.size * 4, fallback_font.size * 4), 0)
+    ImageDraw.Draw(canvas).text((6, 6), ch, font=fallback_font, fill=255)
+    bb = canvas.getbbox()
+    if not bb:
+        return Image.new("RGBA", (4, 4), (0, 0, 0, 0))
+    mask = canvas.crop(bb).filter(ImageFilter.MaxFilter(5))
+    probe = primary_font.getbbox("年") or (0, 0, 40, 40)
+    target_h = max(8, probe[3] - probe[1])
+    target_w = max(1, int(mask.width * (target_h / max(1, mask.height))))
+    mask = mask.resize((target_w, target_h), Image.Resampling.BILINEAR)
+    pad = outline_w + 2
+    out = Image.new("RGBA", (target_w + pad * 2, target_h + pad * 2), (0, 0, 0, 0))
+    stroke = mask.filter(ImageFilter.MaxFilter(max(3, outline_w * 2 + 1)))
+    stroke_rgba = Image.new("RGBA", stroke.size, outline + (0,))
+    stroke_rgba.putalpha(stroke)
+    out.paste(stroke_rgba, (pad - outline_w, pad - outline_w), stroke_rgba)
+    fill_rgba = Image.new("RGBA", mask.size, fill + (0,))
+    fill_rgba.putalpha(mask)
+    out.paste(fill_rgba, (pad, pad), fill_rgba)
+    return out
+
+
 def render_slanted_line(
     text: str,
     primary_font: ImageFont.FreeTypeFont,
@@ -141,13 +173,21 @@ def render_slanted_line(
     chars_info = []
     total_w = 0.0
     max_h = 30
+    glyphs: list[Optional[Image.Image]] = []
     for ch in text:
-        mask_h = primary_font.getmask(ch).size[1]
-        use_font = primary_font if mask_h > 0 else fallback_font
-        ch_w = use_font.getlength(ch)
-        chars_info.append((ch, use_font, ch_w))
+        if _font_has_glyph(primary_font, ch):
+            use_font = primary_font
+            glyph = None
+            ch_w = use_font.getlength(ch)
+            box = use_font.getbbox(ch)
+        else:
+            use_font = fallback_font
+            glyph = _thick_fallback_glyph(ch, fallback_font, primary_font, fill, outline_color, outline_width)
+            ch_w = float(glyph.width)
+            box = (0, 0, glyph.width, glyph.height)
+        glyphs.append(glyph)
+        chars_info.append((ch, use_font, ch_w, glyph is not None))
         total_w += ch_w
-        box = use_font.getbbox(ch)
         if box:
             max_h = max(max_h, box[3] - box[1])
 
@@ -160,12 +200,15 @@ def render_slanted_line(
     curr_x = 20.0
     y_off = 10
 
-    for ch, use_font, ch_w in chars_info:
-        for dx in range(-outline_width, outline_width + 1):
-            for dy in range(-outline_width, outline_width + 1):
-                if dx * dx + dy * dy <= outline_width * outline_width:
-                    d.text((curr_x + dx, y_off + dy), ch, fill=outline_color, font=use_font)
-        d.text((curr_x, y_off), ch, fill=fill, font=use_font)
+    for (ch, use_font, ch_w, is_fallback), glyph in zip(chars_info, glyphs):
+        if glyph is not None:
+            layer.paste(glyph, (int(curr_x), y_off), glyph)
+        else:
+            for dx in range(-outline_width, outline_width + 1):
+                for dy in range(-outline_width, outline_width + 1):
+                    if dx * dx + dy * dy <= outline_width * outline_width:
+                        d.text((curr_x + dx, y_off + dy), ch, fill=outline_color, font=use_font)
+            d.text((curr_x, y_off), ch, fill=fill, font=use_font)
         curr_x += ch_w
 
     m = (1, shear, -shear * (total_h_int / 2), 0, 1, 0)
@@ -222,51 +265,87 @@ def draw_text_with_outline(
     draw.text((x, y), text, fill=fill, font=font, anchor=anchor)
 
 
+def _font_has_glyph(font: ImageFont.FreeTypeFont, ch: str) -> bool:
+    """缺字时 FreeType 会给出空掩码或和 .notdef 一样的占位。"""
+    mask = font.getmask(ch)
+    if mask.size[0] <= 0 or mask.size[1] <= 0:
+        return False
+    missing = font.getmask("\uE000")
+    if mask.size == missing.size and bytes(mask) == bytes(missing):
+        return False
+    return True
+
+
+def render_relief_gold_text(
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    halo: int = 7,
+    x_scale: float = 1.0,
+) -> Image.Image:
+    """
+    样片标题：浅桃色填色、粗深褐描边、外圈一层淡奶油光。
+    填色上浅下深，做出立体金的层次。
+    """
+    bbox = font.getbbox(text) or (0, 0, 10, 10)
+    tw, th = max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])
+    pad = halo + 10
+    w, h = tw + pad * 2, th + pad * 2
+    ox, oy = pad - bbox[0], pad - bbox[1]
+    fill_l = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fill_l)
+    brown = (118, 64, 12)
+    ow = 5
+    for dx in range(-ow, ow + 1):
+        for dy in range(-ow, ow + 1):
+            if dx * dx + dy * dy <= ow * ow:
+                fd.text((ox + dx, oy + dy), text, font=font, fill=brown)
+    fd.text((ox, oy - 1), text, font=font, fill=(255, 232, 206))
+    fd.text((ox, oy + 1), text, font=font, fill=(232, 190, 148))
+    fd.text((ox, oy), text, font=font, fill=(248, 214, 180))
+    alpha = fill_l.getchannel("A")
+    glow = alpha.filter(ImageFilter.GaussianBlur(max(1, halo // 2)))
+    glow = glow.point(lambda p: min(220, int(p * 0.85)))
+    halo_img = Image.new("RGBA", (w, h), (255, 250, 242, 0))
+    halo_img.putalpha(glow)
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(halo_img, (0, 0), halo_img)
+    out.paste(fill_l, (0, 0), fill_l)
+    if abs(x_scale - 1.0) > 0.02:
+        out = out.resize((max(1, int(out.width * x_scale)), out.height), Image.Resampling.LANCZOS)
+    return out
+
+
 def draw_cloud_banner(
     canvas: Image.Image,
     title: str,
     y_pos: int = 180,
-    font_size: int = 86
+    font_size: int = 86,
+    x_scale: float = 1.0,
 ):
     """
-    绘制顶部对称如意祥云抱字标牌：
-    左祥云 + 暖金橙字深褐边 + 右祥云
+    顶部祥云标牌。云朵用样片裁出的金边小云，字宽按样片横向拉开。
     """
-    draw = ImageDraw.Draw(canvas)
     f_title = get_banner_font(font_size)
-    text_w = f_title.getlength(title)
+    chip = render_relief_gold_text(title, f_title, x_scale=x_scale)
     cx = V_WIDTH // 2
+    chip_x = int(cx - chip.width / 2)
+    chip_y = int(y_pos - chip.height / 2)
+    canvas.paste(chip, (chip_x, chip_y), chip)
 
-    # 加载祥云
-    cloud_l_p = TRIVIA_ASSETS_DIR / "cloud_left.png"
-    cloud_r_p = TRIVIA_ASSETS_DIR / "cloud_right.png"
-
-    cloud_w, cloud_h = 110, 82
-    if cloud_l_p.exists() and cloud_r_p.exists():
-        try:
-            cl = Image.open(str(cloud_l_p)).convert("RGBA").resize((cloud_w, cloud_h), Image.Resampling.LANCZOS)
-            cr = Image.open(str(cloud_r_p)).convert("RGBA").resize((cloud_w, cloud_h), Image.Resampling.LANCZOS)
-
-            lx = int(cx - text_w / 2 - cloud_w - 15)
-            rx = int(cx + text_w / 2 + 15)
-            cy = int(y_pos - cloud_h / 2)
-
-            canvas.paste(cl, (lx, cy), cl)
-            canvas.paste(cr, (rx, cy), cr)
-        except Exception:
-            pass
-
-    # 文字阴影与暖橙金立体描边
-    draw_text_with_outline(
-        draw,
-        (cx, y_pos),
-        title,
-        f_title,
-        fill=(255, 215, 120),            # 暖金橙填色
-        outline_color=(125, 65, 15),     # 深褐轮廓边
-        outline_width=5,
-        anchor="mm"
-    )
+    cloud_l_p = TRIVIA_ASSETS_DIR / "cloud_left_ref.png"
+    cloud_r_p = TRIVIA_ASSETS_DIR / "cloud_right_ref.png"
+    if not cloud_l_p.exists():
+        cloud_l_p = TRIVIA_ASSETS_DIR / "cloud_left.png"
+        cloud_r_p = TRIVIA_ASSETS_DIR / "cloud_right.png"
+    try:
+        cl = Image.open(str(cloud_l_p)).convert("RGBA")
+        cr = Image.open(str(cloud_r_p)).convert("RGBA")
+        gap = 6
+        cy = y_pos - cl.height // 2
+        canvas.paste(cl, (chip_x - cl.width - gap, cy), cl)
+        canvas.paste(cr, (chip_x + chip.width + gap, cy), cr)
+    except Exception:
+        pass
 
 
 NO_LINE_START_CHARS = set("，。、；：？！）》’”」』·")
@@ -349,39 +428,79 @@ def create_dish_card(image_path: str, size: int = 680) -> tuple[Image.Image, tup
             photo = None
 
     if cutout is not None:
-        cw, ch = cutout.size
-        scale = size / max(cw, ch)
-        cutout = cutout.resize((max(1, int(cw * scale)), max(1, int(ch * scale))), Image.Resampling.LANCZOS)
         subject = cutout
     else:
-        if photo is None:
-            photo = Image.new("RGBA", (size, size), (220, 230, 240, 255))
-        rw, rh = photo.size
-        scale = max(size / rw, size / rh)
-        nw, nh = int(rw * scale), int(rh * scale)
-        resized = photo.resize((nw, nh), Image.Resampling.LANCZOS)
-        x_c = (nw - size) // 2
-        y_c = (nh - size) // 2
-        img = resized.crop((x_c, y_c, x_c + size, y_c + size))
-        mask = Image.new("L", (size, size), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
-        subject = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        subject.paste(img, (0, 0), mask)
-        rim = ImageDraw.Draw(subject)
-        rim.ellipse((2, 2, size - 3, size - 3), outline=(255, 255, 255, 235), width=8)
+        subject = _compose_scalloped_dish(photo)
 
-    sw, sh = subject.size
-    pad = 48
-    card = Image.new("RGBA", (sw + pad * 2, sh + pad * 2), (0, 0, 0, 0))
+    subject, origin = _fit_subject_to_dish_box(subject)
+    pad = 36
+    card = Image.new("RGBA", (subject.width + pad * 2, subject.height + pad * 2), (0, 0, 0, 0))
     shadow = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    bb = subject.getchannel("A").getbbox() or (0, 0, subject.width, subject.height)
     s_draw = ImageDraw.Draw(shadow)
-    s_draw.ellipse((pad + 18, sh // 2 + 10, sw + pad - 18, sh + pad + 6), fill=(60, 90, 130, 70))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(16))
+    s_draw.ellipse(
+        (pad + bb[0] + 16, pad + bb[3] - 28, pad + bb[2] - 16, pad + bb[3] + 18),
+        fill=(60, 90, 130, 70),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
     card.paste(shadow, (0, 0), shadow)
-    card.paste(subject, (pad, pad // 3), subject)
-    center_y = 690
-    pos = (V_WIDTH // 2 - card.width // 2, center_y - (pad // 3 + sh // 2))
-    return card, pos
+    card.paste(subject, (pad, pad), subject)
+    return card, (origin[0] - pad, origin[1] - pad)
+
+
+# 样片封面白瓷盘外接框（1080 画布）
+DISH_BOX = (231, 411, 622, 583)
+
+
+def _fit_subject_to_dish_box(subject: Image.Image) -> tuple[Image.Image, tuple[int, int]]:
+    """把盘的不透明外框缩放到样片白瓷盘的宽，并放到测到的左上角。"""
+    bb = subject.getchannel("A").getbbox()
+    if not bb:
+        return subject, (DISH_BOX[0], DISH_BOX[1])
+    bw = max(1, bb[2] - bb[0])
+    scale = DISH_BOX[2] / bw
+    subject = subject.resize(
+        (max(1, int(subject.width * scale)), max(1, int(subject.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    bb = subject.getchannel("A").getbbox() or (0, 0, subject.width, subject.height)
+    return subject, (DISH_BOX[0] - bb[0], DISH_BOX[1] - bb[1])
+
+
+def _compose_scalloped_dish(photo: Optional[Image.Image], size: int = 680) -> Image.Image:
+    """
+    用从样片瓷盘抽出的真实花边做盘沿，把照片填进盘心。
+    没有素材时退回一只浅色圆盘。
+    """
+    rim_path = TRIVIA_ASSETS_DIR / "porcelain_rim.png"
+    hole_path = TRIVIA_ASSETS_DIR / "porcelain_hole.png"
+    if rim_path.exists() and hole_path.exists():
+        rim = Image.open(rim_path).convert("RGBA")
+        hole = Image.open(hole_path).convert("L")
+        if hole.size != rim.size:
+            hole = hole.resize(rim.size, Image.Resampling.LANCZOS)
+        plate = Image.new("RGBA", rim.size, (0, 0, 0, 0))
+        hb = hole.getbbox() or (0, 0, rim.width, rim.height)
+        hw, hh = max(1, hb[2] - hb[0]), max(1, hb[3] - hb[1])
+        if photo is None:
+            photo = Image.new("RGBA", (hw, hh), (210, 220, 230, 255))
+        rw, rh = photo.size
+        scale = max(hw / rw, hh / rh)
+        nw, nh = max(1, int(rw * scale)), max(1, int(rh * scale))
+        resized = photo.resize((nw, nh), Image.Resampling.LANCZOS)
+        crop = resized.crop((
+            (nw - hw) // 2, (nh - hh) // 2,
+            (nw - hw) // 2 + hw, (nh - hh) // 2 + hh,
+        ))
+        photo_layer = Image.new("RGBA", rim.size, (0, 0, 0, 0))
+        photo_layer.paste(crop, (hb[0], hb[1]), hole.crop(hb))
+        plate.paste(photo_layer, (0, 0), photo_layer)
+        plate.paste(rim, (0, 0), rim)
+        return plate
+
+    plate = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(plate).ellipse((8, 8, size - 8, size - 8), fill=(255, 250, 244, 255))
+    return plate
 
 
 def create_photo_card(
@@ -456,7 +575,7 @@ def create_fullbleed_hero_photo(
     - 满幅横向 1080px 通栏铺满，无白框、无圆角、无悬浮投影
     - y 坐标固定为 310，精准贴合顶部标牌与底部解说栏分割线
     """
-    pos = (0, 310)
+    pos = (0, 308)
     img = None
     if image_path and os.path.exists(image_path):
         try:
@@ -559,19 +678,51 @@ def _paste_at_center_y(canvas: Image.Image, img: Image.Image, cy: float) -> None
     canvas.paste(img, ((V_WIDTH - img.width) // 2, int(cy - img.height / 2)), img)
 
 
-def _load_tilted_orbit(width: int = 980, tilt: float = -13, center_y: int = 1420) -> Image.Image:
-    """加载样片那圈倾斜的蓝色星轨，失败时返回空图层。"""
-    orbit_p = TRIVIA_ASSETS_DIR / "orbit_ring.png"
+def _rotate_point(px: float, py: float, cx: float, cy: float, deg: float) -> tuple[float, float]:
+    a = math.radians(deg)
+    dx, dy = px - cx, py - cy
+    # PIL 正角度为逆时针；y 向下时点的新坐标用这一组
+    return cx + dx * math.cos(a) + dy * math.sin(a), cy - dx * math.sin(a) + dy * math.cos(a)
+
+
+def _load_tilted_orbit(y_shift: int = 0) -> Image.Image:
+    """
+    把平放星轨旋到样片的角度：左下星落到 (243, 1611)，右上星落到 (858, 1261)。
+    封面用 y_shift 整体上移。
+    """
     layer = _blank_canvas()
+    orbit_p = TRIVIA_ASSETS_DIR / "orbit_ring.png"
     if not orbit_p.exists():
         return layer
     try:
         orbit = Image.open(str(orbit_p)).convert("RGBA")
-        ow, oh = orbit.size
-        nh = max(1, int(oh * (width / float(ow))))
-        orbit = orbit.resize((width, nh), Image.Resampling.LANCZOS)
-        orbit = orbit.rotate(tilt, expand=True, resample=Image.Resampling.BICUBIC)
-        _paste_at_center_y(layer, orbit, center_y)
+        src_left = (145.0, 202.0)
+        src_right = (689.0, 109.0)
+        dst_left = (243.0, 1611.0 + y_shift)
+        dst_right = (858.0, 1261.0 + y_shift)
+        src_dist = math.hypot(src_right[0] - src_left[0], src_right[1] - src_left[1])
+        dst_dist = math.hypot(dst_right[0] - dst_left[0], dst_right[1] - dst_left[1])
+        scale = dst_dist / max(1.0, src_dist)
+        orbit = orbit.resize(
+            (max(1, int(orbit.width * scale)), max(1, int(orbit.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        left = (src_left[0] * scale, src_left[1] * scale)
+        right = (src_right[0] * scale, src_right[1] * scale)
+        cx, cy = orbit.width / 2.0, orbit.height / 2.0
+        src_ang = math.degrees(math.atan2(right[1] - left[1], right[0] - left[0]))
+        dst_ang = math.degrees(math.atan2(dst_right[1] - dst_left[1], dst_right[0] - dst_left[0]))
+        # 图像 y 向下，atan2 的角度差取负才是 PIL 的逆时针旋转量
+        deg = -(dst_ang - src_ang)
+        rotated = orbit.rotate(deg, resample=Image.Resampling.BICUBIC, expand=True)
+        ocx, ocy = rotated.width / 2.0, rotated.height / 2.0
+        lx, ly = _rotate_point(left[0], left[1], cx, cy, deg)
+        # expand 之后原图中心仍在新图中心，点相对中心的偏移保持不变
+        lx += ocx - cx
+        ly += ocy - cy
+        paste_x = int(dst_left[0] - lx)
+        paste_y = int(dst_left[1] - ly)
+        layer.paste(rotated, (paste_x, paste_y), rotated)
     except Exception:
         return layer
     return layer
@@ -608,33 +759,29 @@ def render_trivia_slides(
 
     # ------------------ SLIDE 1: 封面（分层，方便药材盘放大和文字先后入场） ------------------
     title_l = _blank_canvas()
-    draw_cloud_banner(title_l, "每日认识一种植物", y_pos=148, font_size=74)
+    draw_cloud_banner(title_l, "每日认识一种植物", y_pos=147, font_size=74, x_scale=1.36)
 
     badge_l = _blank_canvas()
-    badge_draw = ImageDraw.Draw(badge_l)
-    f_sub = get_banner_font(52)
-    badge_text = f"（ {script.cover_badge} ）"
-    draw_text_with_outline(
-        badge_draw, (V_WIDTH // 2, 276), badge_text, f_sub,
-        fill=(236, 196, 122), outline_color=(118, 68, 18), outline_width=4, anchor="mm"
-    )
+    f_sub = get_banner_font(64)
+    badge_chip = render_relief_gold_text(f"（ {script.cover_badge} ）", f_sub, halo=5, x_scale=1.32)
+    badge_l.paste(badge_chip, (V_WIDTH // 2 - badge_chip.width // 2, 277 - badge_chip.height // 2), badge_chip)
 
     pc1, pos1 = create_dish_card(get_img(0), size=680)
 
     pinyin_l = _blank_canvas()
     py_draw = ImageDraw.Draw(pinyin_l)
-    f_py = get_latin_pinyin_font(54)
-    py_x, py_y = V_WIDTH // 2, 1180
-    for dx in range(-7, 8):
-        for dy in range(-7, 8):
-            if dx * dx + dy * dy <= 49:
+    f_py = get_latin_pinyin_font(72)
+    py_x, py_y = V_WIDTH // 2, 1168
+    for dx in range(-10, 11):
+        for dy in range(-10, 11):
+            if dx * dx + dy * dy <= 100:
                 py_draw.text((py_x + dx, py_y + dy), script.pinyin, fill=(220, 60, 75, 140), font=f_py, anchor="mm")
     draw_text_with_outline(
         py_draw, (py_x, py_y), script.pinyin, f_py,
         fill=(255, 255, 255), outline_color=(190, 55, 68), outline_width=2, anchor="mm"
     )
 
-    f_name_size = 108
+    f_name_size = 124
     f_name = get_calligraphy_font(f_name_size)
     while f_name.getlength(script.plant_name) > 760 and f_name_size > 64:
         f_name_size -= 6
@@ -661,9 +808,13 @@ def render_trivia_slides(
         (nw + pad_box + 50, nh + pad_box), Image.Transform.AFFINE, m_name, Image.Resampling.BILINEAR
     )
     name_l = _blank_canvas()
-    _paste_at_center_y(name_l, slanted_name, 1324)
+    name_scaled = slanted_name.resize(
+        (max(1, int(slanted_name.width * 1.15)), slanted_name.height),
+        Image.Resampling.LANCZOS,
+    )
+    _paste_at_center_y(name_l, name_scaled, 1310)
 
-    orbit_cover_shifted = _load_tilted_orbit(width=1180, tilt=-14, center_y=1395)
+    orbit_cover_shifted = _load_tilted_orbit(y_shift=-36)
 
     import re
     clean_aliases = re.sub(r"\(.*?\)|（.*?）", "", script.aliases).strip()
@@ -671,11 +822,11 @@ def render_trivia_slides(
     if len(clean_aliases) > 18:
         clean_aliases = clean_aliases[:18] + "…"
 
-    f_meta, f_fb = typography.resolve_fonts(48)
+    f_meta, f_fb = typography.resolve_fonts(52)
 
     def render_meta_line(label: str, val: str) -> Image.Image:
-        l_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, (255, 255, 255)) for ch in label]
-        v_chars = [(ch, f_meta if f_meta.getmask(ch).size[1] > 0 else f_fb, typography.fill_rgb) for ch in val]
+        l_chars = [(ch, f_meta if _font_has_glyph(f_meta, ch) else f_fb, (255, 255, 255)) for ch in label]
+        v_chars = [(ch, f_meta if _font_has_glyph(f_meta, ch) else f_fb, typography.fill_rgb) for ch in val]
         all_chars = l_chars + v_chars
         tot_w = sum(f.getlength(ch) for ch, f, _ in all_chars)
         tot_w_int = int(tot_w) + 60
@@ -690,14 +841,22 @@ def render_trivia_slides(
                 for dy in range(-ow, ow + 1):
                     if dx * dx + dy * dy <= ow * ow:
                         ld.text((curr_x + dx, y_off + dy), ch, fill=typography.outline_rgb, font=f)
-            ld.text((curr_x, y_off), ch, fill=col, font=f)
+            offsets = ((0, 0),) if f is f_meta else ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1))
+            for ox, oy in offsets:
+                ld.text((curr_x + ox, y_off + oy), ch, fill=col, font=f)
             curr_x += f.getlength(ch)
         m = (1, typography.shear_factor, -typography.shear_factor * (tot_h_int / 2), 0, 1, 0)
         return lay.transform((tot_w_int + 30, tot_h_int), Image.Transform.AFFINE, m, Image.Resampling.BILINEAR)
 
     meta_l = _blank_canvas()
-    _paste_at_center_y(meta_l, render_meta_line("别名：", clean_aliases), 1466)
-    _paste_at_center_y(meta_l, render_meta_line("科属：", script.family_genus), 1556)
+    m1 = render_meta_line("别名：", clean_aliases)
+    m2 = render_meta_line("科属：", script.family_genus)
+    m1 = m1.resize((max(1, int(m1.width * 1.12)), m1.height), Image.Resampling.LANCZOS)
+    m2 = m2.resize((max(1, int(m2.width * 1.12)), m2.height), Image.Resampling.LANCZOS)
+    ink = m1.getchannel("A").getbbox() or (0, 0, m1.width, m1.height)
+    left = (V_WIDTH - (ink[2] - ink[0])) // 2 - ink[0]
+    meta_l.paste(m1, (left, 1466 - m1.height // 2), m1)
+    meta_l.paste(m2, (left, 1556 - m2.height // 2), m2)
 
     text_cover = _blank_canvas()
     for layer in (title_l, badge_l, orbit_cover_shifted, pinyin_l, name_l, meta_l):
@@ -718,29 +877,36 @@ def render_trivia_slides(
     # ------------------ 通用内容 Slide 构造器 (Slide 2, 3, 4) ------------------
     def _build_content_slide(title: str, text: str, img_idx: int):
         title_layer = _blank_canvas()
-        draw_cloud_banner(title_layer, title, y_pos=158, font_size=72)
+        draw_cloud_banner(title_layer, title, y_pos=164, font_size=78, x_scale=1.45)
 
-        pc, pos = create_fullbleed_hero_photo(get_img(img_idx), w=1080, h=900)
+        pc, pos = create_fullbleed_hero_photo(get_img(img_idx), w=1080, h=898)
 
-        orbit_shifted = _load_tilted_orbit(width=1280, tilt=-16, center_y=1505)
+        orbit_shifted = _load_tilted_orbit(y_shift=0)
 
-        # 样片正文大约每行 16 个琥珀字。50px 华文琥珀下 16 字约 750px 宽。
-        font_size = 50
-        max_width = 755
+        # 样片正文首行墨迹顶边 y=1260，左缘 x=131，行距 78
+        font_size = 52
+        max_width = 780
         f_body, f_fallback = typography.resolve_fonts(font_size)
         wrapped_lines = wrap_text_cjk(text, f_body, max_width=max_width)
         if len(wrapped_lines) > 5:
-            font_size = 46
-            max_width = 820
+            font_size = 48
+            max_width = 860
             f_body, f_fallback = typography.resolve_fonts(font_size)
             wrapped_lines = wrap_text_cjk(text, f_body, max_width=max_width)
 
-        n_lines = max(1, len(wrapped_lines))
-        line_height = 74 if n_lines >= 5 else 78
-        block_h = n_lines * line_height
-        y_start = int(1490 - block_h / 2)
-        y_start = max(1236, y_start)
-        x_start = 88
+        line_height = 78
+        probe = render_slanted_line(
+            "测",
+            primary_font=f_body,
+            fallback_font=f_fallback,
+            fill=typography.fill_rgb,
+            outline_color=typography.outline_rgb,
+            outline_width=typography.outline_width,
+            shear=typography.shear_factor,
+        )
+        ink = probe.getchannel("A").getbbox() or (0, 0, 10, 10)
+        y_start = 1260 - ink[1]
+        x_start = 131 - ink[0]
 
         caption = _blank_canvas()
         curr_y = y_start
