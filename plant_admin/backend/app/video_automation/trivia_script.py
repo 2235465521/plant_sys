@@ -106,26 +106,24 @@ def _fit_script(script: TriviaScript) -> TriviaScript:
     return script
 
 
-def _extract_spoken_clause(raw_text: str, fallback: str = "", max_chars: int = 15) -> str:
-    """提取 12~15 字精炼口语化朗读概括短句，确保全片总时长精准对齐 20 秒"""
+def _extract_spoken_clause(raw_text: str, fallback: str = "", max_chars: int = 48) -> str:
+    """取一两句完整总结。只在句号处收束，不在逗号处截成开头两小句。"""
     if not raw_text:
         return fallback
     clean = re.sub(r"\(.*?\)|（.*?）", "", raw_text).strip()
-    clauses = [c.strip() for c in re.split(r"[。；，,、]", clean) if c.strip()]
-    if not clauses:
+    sentences = [c.strip() for c in re.split(r"(?<=[。；！？])", clean) if c.strip()]
+    if not sentences:
         return fallback
     spoken = ""
-    for c in clauses:
-        if len(spoken) + len(c) <= max_chars:
-            spoken += ("，" if spoken else "") + c
+    for sentence in sentences:
+        piece = sentence if sentence.endswith(("。", "；", "！", "？")) else sentence + "。"
+        if len(spoken) + len(piece) <= max_chars:
+            spoken += piece
         else:
             break
-    if not spoken:
-        spoken = clauses[0][:max_chars]
-    elif len(spoken) < 8 and len(clauses) > 1:
-        spoken = (clauses[0] + "，" + clauses[1])[:max_chars]
-    spoken = spoken.strip("，, ")
-    return spoken + "。"
+    if spoken:
+        return spoken
+    return fallback or (clean[:max_chars].rstrip("，,、 ") + "。")
 
 
 def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
@@ -133,7 +131,7 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     离线规则降级：当 LLM 无法连接时，自动从数据库各字段解析构造稳健脚本。
     执行图文分离模式：
     - 画面展示：50~75 字完整多行通俗介绍（对标样片《天.MOV》3~4行）
-    - 语音旁白：12~15 字精炼口语解说短句（控制全片时长为严格 20 秒）
+    - 语音旁白：一两句完整总结，覆盖这一幕的形态、趣闻或生境，不在逗号处截断
     """
     name = str(plant_data.get("vernacular_name") or plant_data.get("scientific_name") or "草本植物").strip()
     py = get_pinyin(name)
@@ -173,10 +171,10 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     morph_raw = str(plant_data.get("morphology_text") or "").strip()
     if "天葵" in name:
         morph_text = "多年生小草本；块根肉质，纺锤形或椭圆形；基生叶掌状三出复叶，小叶再分裂；花小，白色，花瓣匙形；开裂果，种子多数；花期3-4月，果期4-5月。"
-        morph_spoken = "块根纺锤形，早春开小白花。"
+        morph_spoken = "块根纺锤形，叶子掌状分裂，春天开白色小花，结开裂果。"
     elif "虎眼万年青" in name:
         morph_text = "鳞茎卵球形，绿色，直径可达10厘米。叶5-6枚，带状或长条状披针形，长30-60厘米，宽2.5-5厘米，先端尾状并常扭转，常绿，近革质。"
-        morph_spoken = "鳞茎呈卵球形，叶带状常绿。"
+        morph_spoken = "鳞茎呈卵球形，叶片带状常绿，先端常会扭转。"
     elif morph_raw:
         morph_text = _extract_visual_sentences(
             morph_raw, min_len=45, max_len=75,
@@ -190,10 +188,10 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     # 4. 植物趣闻 (画面 50~75 字，朗读 12~15 字)
     if "天葵" in name:
         trivia_text = "名字“千年老鼠屎”来自块根外形，它生长节奏特殊，秋萌夏枯，和多数植物相反，入夏地上植株便悄然隐没。"
-        trivia_spoken = "块根形似鼠屎，秋萌夏枯。"
+        trivia_spoken = "块根像老鼠屎，所以叫千年老鼠屎，而且它秋萌夏枯。"
     elif "虎眼万年青" in name:
         trivia_text = "虎眼万年青每长出一片叶，鳞茎便会长出如虎眼般的小球，象征多子多福。民间常用其鳞茎消肿解毒，是兼具药用与绿化的奇妙植物。"
-        trivia_spoken = "鳞茎萌发小球，寓意多子多福。"
+        trivia_spoken = "每长一片叶，鳞茎就多一个小球，民间用来消肿解毒。"
     else:
         trivia_origin = ""
         for al in aliases_list:
@@ -219,10 +217,10 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
 
     if "天葵" in name:
         habitat_text = "喜阴凉湿润环境，耐半阴，忌强光暴晒；适合疏松排水良好的砂质壤土，多野生于林下、路旁、山坡草丛，我国长江流域以南多地有分布。"
-        habitat_spoken = "喜阴凉湿润，长江以南多见。"
+        habitat_spoken = "它喜阴凉湿润，怕暴晒，多生在林下阴处，长江以南常见。"
     elif "虎眼万年青" in name:
         habitat_text = "原产非洲南部，现我国各地广泛引种栽培。喜温暖湿润与阳光充足环境，稍耐阴，常用作盆栽观赏与绿化点缀。"
-        habitat_spoken = "喜温湿环境，各地广泛栽培。"
+        habitat_spoken = "原产非洲南部，喜温暖湿润，我国各地都有栽培。"
     else:
         comb_parts = []
         if hab_raw and hab_raw not in ["无", "暂无", "未知"]:
@@ -287,7 +285,7 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
 文案口气对标短视频样片《天葵》：短句、分号串联、一句一件事，不要抒情空话。
 【极端重要规则】：
 1. 画面展卡文本（*_text）：55~75字，排成大约4~5行。形态写株型、根、叶、花、果和花期果期，用分号连接。趣闻先解释一个别名的来历，再写一个和多数植物不一样的物候。生境写喜什么、耐什么、忌什么，适合什么土，多野生在哪里，我国哪里有分布。严禁半截断句。
-2. 语音旁白文本（*_spoken）：必须为18~22字总结句（由配音员朗读），概括这一幕，不要照读画面长句。
+2. 语音旁白文本（*_spoken）：每幕 36~48 字，用一两句完整的话总结这一幕的全部要点（形态要带到根、叶、花、果；趣闻要带到别名和物候；生境要带到习性和分布）。不要只说开头半句，也不要照读画面长文。
 3. 画面用字避开生僻字。果实类型写「开裂果」，不要写「蓇葖」。
 
 植物资料：
@@ -296,11 +294,11 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
 请严格输出 JSON 格式（不要包含 markdown 代码块或多余字符），包含以下 7 个字段：
 1. "cover_badge": 封面药用部位（6字内，如"干燥块根入药"）
 2. "morphology_text": 【画面展卡】50~70字完整通俗形态描述（3~4行完整句子）
-3. "morphology_spoken": 【语音旁白】14~18字形态精炼概括短句
+3. "morphology_spoken": 【语音旁白】36~48字，一句到两句，总结根、叶、花、果
 4. "trivia_text": 【画面展卡】50~70字趣味典故、别名渊源或物候故事（3~4行完整句子）
-5. "trivia_spoken": 【语音旁白】14~18字趣闻精炼解说短句
+5. "trivia_spoken": 【语音旁白】36~48字，一句到两句，总结别名来历和物候
 6. "habitat_text": 【画面展卡】50~70字生境习性与主要产地分布（3~4行完整句子）
-7. "habitat_spoken": 【语音旁白】14~18字生境精炼概括短句
+7. "habitat_spoken": 【语音旁白】36~48字，一句到两句，总结习性和产地
 """
 
     model = "deepseek-reasoner" if use_pro else "deepseek-v4-flash"

@@ -689,17 +689,21 @@ def _load_tilted_orbit(y_shift: int = 0) -> Image.Image:
 
 
 def _poster_name_layer(name: str, typography) -> Image.Image:
-    """账号封面：照片上的大号黄字黑边植物名，和正文同一套琥珀体。"""
+    """
+    封面贴纸字：照片正中的超大黄字、特粗黑边，接近账号成片封面上的植物名。
+    """
     name = "".join(ch for ch in fit_hupo_text(name or "") if not ch.isspace())
     layer = _blank_canvas()
     if not name:
         return layer
-    size = 200 if len(name) <= 2 else 156 if len(name) <= 3 else 112
+    # 两三个字要占满画面中部；更长的名字再缩小或拆成两行
+    size = 300 if len(name) <= 2 else 220 if len(name) <= 3 else 150
     font, fallback = typography.resolve_fonts(size)
-    while font.getlength(name) > 900 and size > 72:
-        size -= 8
+    while font.getlength(name) > 860 and size > 88:
+        size -= 10
         font, fallback = typography.resolve_fonts(size)
-    if len(name) > 4 and font.getlength(name) > 860:
+    outline = max(14, size // 16)
+    if len(name) > 4 and font.getlength(name) > 820:
         mid = (len(name) + 1) // 2
         lines = [name[:mid], name[mid:]]
     else:
@@ -709,19 +713,49 @@ def _poster_name_layer(name: str, typography) -> Image.Image:
             line,
             font,
             fallback,
-            fill=typography.fill_rgb,
+            fill=(255, 214, 0),
             outline_color=(0, 0, 0),
-            outline_width=8,
-            shear=typography.shear_factor,
+            outline_width=outline,
+            shear=0.0,
         )
         for line in lines
     ]
-    gap = 6
+    gap = 0
     block_h = sum(chip.height for chip in chips) + gap * (len(chips) - 1)
-    y = 1180 - block_h // 2
+    y = (V_HEIGHT - block_h) // 2 - 70
     for chip in chips:
         layer.paste(chip, ((V_WIDTH - chip.width) // 2, int(y)), chip)
         y += chip.height + gap
+    return layer
+
+
+def _poster_alias_layer(name: str, aliases: str, typography) -> Image.Image:
+    """封面植物名下方的别名，沿用开头那行黄字黑边。"""
+    import re
+    layer = _blank_canvas()
+    raw = fit_hupo_text(aliases or "")
+    raw = re.sub(r"\(.*?\)|（.*?）", "", raw).strip()
+    raw = re.sub(r"[、,，\s]+", "、", raw).strip("、")
+    plant = "".join(ch for ch in fit_hupo_text(name or "") if not ch.isspace())
+    parts = [p for p in raw.split("、") if p and p != plant]
+    if not parts:
+        return layer
+    text = "、".join(parts[:3])
+    if len(text) > 18:
+        text = text[:18] + "…"
+    font, fallback = typography.resolve_fonts(58)
+    chip = render_slanted_line(
+        f"别名：{text}",
+        font,
+        fallback,
+        fill=(255, 214, 0),
+        outline_color=(0, 0, 0),
+        outline_width=6,
+        shear=0.0,
+    )
+    name_box = _poster_name_layer(name, typography).getchannel("A").getbbox()
+    top = (name_box[3] + 18) if name_box else (V_HEIGHT // 2 + 80)
+    layer.paste(chip, ((V_WIDTH - chip.width) // 2, int(top)), chip)
     return layer
 
 
@@ -758,10 +792,13 @@ def render_trivia_slides(
     cover_src = get_img(1) if len(local_images) > 1 else get_img(0)
     photo = create_fullscreen_photo(cover_src, w=V_WIDTH, h=V_HEIGHT)
     name_l = _poster_name_layer(script.plant_name, typography)
+    alias_l = _poster_alias_layer(script.plant_name, script.aliases, typography)
+    text_l = name_l.copy()
+    text_l.paste(alias_l, (0, 0), alias_l)
     full = photo.copy()
-    full.paste(name_l, (0, 0), name_l)
-    cover = SlideData(full.convert("RGB"), name_l, photo, (0, 0))
-    slides.append(_bind_motion(cover, "cover", {"name": name_l}))
+    full.paste(text_l, (0, 0), text_l)
+    cover = SlideData(full.convert("RGB"), text_l, photo, (0, 0))
+    slides.append(_bind_motion(cover, "cover", {"name": name_l, "alias": alias_l}))
 
     # ------------------ 通用内容 Slide 构造器 (Slide 2, 3, 4) ------------------
     def _build_content_slide(title: str, text: str, img_idx: int):

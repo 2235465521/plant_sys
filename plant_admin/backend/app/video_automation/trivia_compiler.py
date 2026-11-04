@@ -23,7 +23,7 @@ from app.video_automation.trivia_renderer import render_trivia_slides, load_triv
 from app.video_automation.trivia_script import TriviaScript, generate_trivia_script
 
 VOICE_DEFAULT = "zh-CN-YunxiNeural"   # 阳光活泼中青年科普男声（最契合短视频）
-VOICE_RATE = "+30%"                   # +30% 紧凑快节奏短视频语速
+VOICE_RATE = "+0%"                    # 正常语速，按整句总结来念
 FPS = 30
 TRANSITION_FRAMES = 0                 # 样片是硬切，转场不占额外帧；动效做在每一幕内部
 TARGET_TOTAL_SECONDS = 20.0           # 严格控制全片总时长在 20 秒 (600 帧)
@@ -94,25 +94,28 @@ def generate_narration_chunks(
     clean_trivia = re.sub(r"^(植物趣闻|趣闻)[:：\s]*", "", trivia_spoken).strip()
     clean_habitat = re.sub(r"^(适生范围|生境分布|生境)[:：\s]*", "", habitat_spoken).strip()
 
-    # 口语朗读句子精简防护（若未设置 spoken，则截取前段自然标点从容控时）
-    def _clamp_spoken(s: str, max_chars: int = 22) -> str:
+    def _clamp_spoken(s: str, max_chars: int = 48) -> str:
+        """保留完整句子。逗号不当成断点，避免只念开头两小句。"""
         s = s.strip()
+        if not s:
+            return s
         if len(s) <= max_chars:
-            return s.rstrip("。，, ") + "。"
-        clauses = [c.strip() for c in re.split(r"[。；，,、]", s) if c.strip()]
-        res = ""
-        for c in clauses:
-            if len(res) + len(c) <= max_chars:
-                res += ("，" if res else "") + c
+            return s if s.endswith(("。", "！", "？")) else s.rstrip("，,、 ") + "。"
+        sentences = [c.strip() for c in re.split(r"(?<=[。；！？])", s) if c.strip()]
+        spoken = ""
+        for sentence in sentences:
+            piece = sentence if sentence.endswith(("。", "；", "！", "？")) else sentence + "。"
+            if len(spoken) + len(piece) <= max_chars:
+                spoken += piece
             else:
                 break
-        if not res and clauses:
-            res = clauses[0][:max_chars]
-        return res.rstrip("。，, ") + "。"
+        if spoken:
+            return spoken
+        return s[:max_chars].rstrip("，,、 ") + "。"
 
-    clean_morph = _clamp_spoken(clean_morph, max_chars=22)
-    clean_trivia = _clamp_spoken(clean_trivia, max_chars=22)
-    clean_habitat = _clamp_spoken(clean_habitat, max_chars=22)
+    clean_morph = _clamp_spoken(clean_morph)
+    clean_trivia = _clamp_spoken(clean_trivia)
+    clean_habitat = _clamp_spoken(clean_habitat)
 
     texts = [
         f"今天认识{script.plant_name}。",
@@ -362,6 +365,7 @@ def generate_trivia_frames(
                 if frame.size != (V_WIDTH, V_HEIGHT):
                     frame = frame.resize((V_WIDTH, V_HEIGHT), Image.Resampling.BILINEAR)
                 _paste_alpha(frame, layers.get("name"), _ramp(t, 0.12, 0.55))
+                _paste_alpha(frame, layers.get("alias"), _ramp(t, 0.45, 0.95))
                 yield _out(frame)
             elif kind == "content":
                 frame = bg.copy()
