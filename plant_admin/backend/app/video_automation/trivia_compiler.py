@@ -76,7 +76,7 @@ def generate_narration_chunks(
     script: TriviaScript,
     temp_dir: str,
     voice: str = VOICE_DEFAULT
-) -> list[tuple[str, float]]:
+) -> tuple[list[tuple[str, float]], list[str]]:
     """
     为 5 幕生成对应的语音朗读词并获取各自的时长（图文分离：读精炼口语，全片严格控制在 20 秒）：
     Slide 1: 封面介绍 (~2.0s)
@@ -110,19 +110,20 @@ def generate_narration_chunks(
             res = clauses[0][:max_chars]
         return res.rstrip("。，, ") + "。"
 
-    clean_morph = _clamp_spoken(clean_morph, max_chars=16)
-    clean_trivia = _clamp_spoken(clean_trivia, max_chars=16)
-    clean_habitat = _clamp_spoken(clean_habitat, max_chars=16)
+    clean_morph = _clamp_spoken(clean_morph, max_chars=22)
+    clean_trivia = _clamp_spoken(clean_trivia, max_chars=22)
+    clean_habitat = _clamp_spoken(clean_habitat, max_chars=22)
 
     texts = [
-        f"每日认识一种植物，{script.plant_name}。",
+        f"今天认识{script.plant_name}。",
         clean_morph,
         clean_trivia,
         clean_habitat,
-        "带你认识身边草木中药。",
+        "记好这味身边草药。",
     ]
 
     results: list[tuple[str, float]] = []
+    failures: list[str] = []
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -134,12 +135,12 @@ def generate_narration_chunks(
                 dur = get_audio_duration_seconds(chunk_p)
                 results.append((chunk_p, max(1.8, dur)))
             else:
-                # 离线降级为静音固定时长
+                failures.append(txt)
                 results.append(("", 3.0))
     finally:
         loop.close()
 
-    return results
+    return results, failures
 
 
 def plan_scene_frames(durations: list[float], fps: int = FPS) -> list[int]:
@@ -357,18 +358,10 @@ def generate_trivia_frames(
         for k in range(n_frames):
             t = k / float(fps)
             if kind == "cover":
-                frame = bg.copy()
-                dish_scale = _piecewise(t, [(0.22, 0.57), (0.35, 0.73), (0.50, 0.86), (0.65, 1.0)])
-                _paste_scaled_center(
-                    frame, slide.photo_canvas, slide.photo_pos,
-                    dish_scale, _ramp(t, 0.16, 0.42)
-                )
-                _paste_alpha(frame, layers.get("title"), _ramp(t, 0.22, 0.80))
-                _paste_alpha(frame, layers.get("badge"), _ramp(t, 0.42, 0.85))
-                _paste_alpha(frame, layers.get("orbit"), _ramp(t, 1.20, 1.90))
-                _paste_alpha(frame, layers.get("pinyin"), _ramp(t, 1.00, 1.50))
-                _paste_alpha(frame, layers.get("name"), _ramp(t, 1.15, 1.75))
-                _paste_alpha(frame, layers.get("meta"), _ramp(t, 1.35, 2.10))
+                frame = slide.photo_canvas.convert("RGBA")
+                if frame.size != (V_WIDTH, V_HEIGHT):
+                    frame = frame.resize((V_WIDTH, V_HEIGHT), Image.Resampling.BILINEAR)
+                _paste_alpha(frame, layers.get("name"), _ramp(t, 0.12, 0.55))
                 yield _out(frame)
             elif kind == "content":
                 frame = bg.copy()
@@ -510,7 +503,7 @@ def compile_trivia_video(
 
         if progress_callback:
             progress_callback(25, "正在合成 Edge-TTS 阳光科普男声配音...")
-        chunks = generate_narration_chunks(script, str(temp_dir))
+        chunks, voice_errors = generate_narration_chunks(script, str(temp_dir))
         durations = [dur for _, dur in chunks]
         static_frames = plan_scene_frames(durations, fps=FPS)
 
@@ -578,6 +571,11 @@ def compile_trivia_video(
         stdout_data, stderr_data = proc.communicate(timeout=120)
 
         if proc.returncode == 0 and os.path.exists(output_path):
+            if voice_errors:
+                note = "配音未合成：" + "、".join(voice_errors)
+                if progress_callback:
+                    progress_callback(100, note)
+                return True, note
             if progress_callback:
                 progress_callback(100, "《草本趣闻风》短视频压制完成！")
             return True, output_path

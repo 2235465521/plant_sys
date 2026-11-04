@@ -76,6 +76,36 @@ def _extract_visual_sentences(raw_text: str, min_len: int = 45, max_len: int = 7
     return accum
 
 
+# 华文琥珀没有的植物学术语，改成它能写的说法，避免画面混入另一种字体。
+_HUPO_REPLACEMENTS = (
+    ("蓇葖果", "开裂果"),
+    ("蓇葖", "开裂果"),
+)
+
+
+def fit_hupo_text(text: str) -> str:
+    """把画面文字收成琥珀体能够绘制的句子。"""
+    if not text:
+        return text
+    for src, dst in _HUPO_REPLACEMENTS:
+        text = text.replace(src, dst)
+    return text
+
+
+def _fit_script(script: TriviaScript) -> TriviaScript:
+    script.plant_name = fit_hupo_text(script.plant_name)
+    script.cover_badge = fit_hupo_text(script.cover_badge)
+    script.aliases = fit_hupo_text(script.aliases)
+    script.family_genus = fit_hupo_text(script.family_genus)
+    script.morphology_text = fit_hupo_text(script.morphology_text)
+    script.trivia_text = fit_hupo_text(script.trivia_text)
+    script.habitat_text = fit_hupo_text(script.habitat_text)
+    script.morphology_spoken = fit_hupo_text(script.morphology_spoken)
+    script.trivia_spoken = fit_hupo_text(script.trivia_spoken)
+    script.habitat_spoken = fit_hupo_text(script.habitat_spoken)
+    return script
+
+
 def _extract_spoken_clause(raw_text: str, fallback: str = "", max_chars: int = 15) -> str:
     """提取 12~15 字精炼口语化朗读概括短句，确保全片总时长精准对齐 20 秒"""
     if not raw_text:
@@ -142,7 +172,7 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
     # 3. 形态特征 (画面 50~75 字，朗读 12~15 字)
     morph_raw = str(plant_data.get("morphology_text") or "").strip()
     if "天葵" in name:
-        morph_text = "多年生小草本；块根肉质，纺锤形或椭圆形；基生叶掌状三出复叶，小叶再分裂；花小，白色，花瓣匙形；蓇葖果，种子多数；花期3-4月，果期4-5月。"
+        morph_text = "多年生小草本；块根肉质，纺锤形或椭圆形；基生叶掌状三出复叶，小叶再分裂；花小，白色，花瓣匙形；开裂果，种子多数；花期3-4月，果期4-5月。"
         morph_spoken = "块根纺锤形，早春开小白花。"
     elif "虎眼万年青" in name:
         morph_text = "鳞茎卵球形，绿色，直径可达10厘米。叶5-6枚，带状或长条状披针形，长30-60厘米，宽2.5-5厘米，先端尾状并常扭转，常绿，近革质。"
@@ -216,7 +246,7 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
         aliases_str = "千年老鼠屎、雷丸草"
         fg_str = "毛茛科 天葵属"
 
-    return TriviaScript(
+    return _fit_script(TriviaScript(
         plant_name=name,
         pinyin=py,
         cover_badge=cover_badge,
@@ -231,7 +261,7 @@ def _rule_based_trivia_script(plant_data: dict[str, Any]) -> TriviaScript:
         morphology_spoken=morph_spoken,
         trivia_spoken=trivia_spoken,
         habitat_spoken=habitat_spoken,
-    )
+    ))
 
 
 def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) -> TriviaScript:
@@ -257,7 +287,8 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
 文案口气对标短视频样片《天葵》：短句、分号串联、一句一件事，不要抒情空话。
 【极端重要规则】：
 1. 画面展卡文本（*_text）：55~75字，排成大约4~5行。形态写株型、根、叶、花、果和花期果期，用分号连接。趣闻先解释一个别名的来历，再写一个和多数植物不一样的物候。生境写喜什么、耐什么、忌什么，适合什么土，多野生在哪里，我国哪里有分布。严禁半截断句。
-2. 语音旁白文本（*_spoken）：必须为14~18字超精炼短句（由配音员朗读，语速快节奏），严禁长句！
+2. 语音旁白文本（*_spoken）：必须为18~22字总结句（由配音员朗读），概括这一幕，不要照读画面长句。
+3. 画面用字避开生僻字。果实类型写「开裂果」，不要写「蓇葖」。
 
 植物资料：
 {json.dumps(ctx, ensure_ascii=False, indent=2)}
@@ -309,7 +340,7 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
 
             if morph_t and trivia_t and hab_t:
                 fallback = _rule_based_trivia_script(plant_data)
-                return TriviaScript(
+                return _fit_script(TriviaScript(
                     plant_name=name,
                     pinyin=fallback.pinyin,
                     cover_badge=cover_b if cover_b else fallback.cover_badge,
@@ -324,7 +355,7 @@ def generate_trivia_script(plant_data: dict[str, Any], use_pro: bool = False) ->
                     morphology_spoken=morph_s if morph_s else fallback.morphology_spoken,
                     trivia_spoken=trivia_s if trivia_s else fallback.trivia_spoken,
                     habitat_spoken=hab_s if hab_s else fallback.habitat_spoken,
-                )
+                ))
     except Exception as e:
         print(f"[TriviaScript] DeepSeek API 提炼未执行或超时，自动切换为规则降级: {e}")
 

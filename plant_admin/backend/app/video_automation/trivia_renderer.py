@@ -17,7 +17,7 @@ from typing import Any, Optional
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 from app.video_automation.frame_renderer import SlideData, V_WIDTH, V_HEIGHT, get_system_font
-from app.video_automation.trivia_script import TriviaScript, generate_trivia_script
+from app.video_automation.trivia_script import TriviaScript, fit_hupo_text, generate_trivia_script
 
 TRIVIA_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "video_assets" / "trivia"
 FONTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "video_assets" / "fonts"
@@ -120,37 +120,6 @@ def get_cjk_fallback_font(size: int) -> ImageFont.FreeTypeFont:
     return get_system_font(size, bold=True)
 
 
-def _thick_fallback_glyph(
-    ch: str,
-    fallback_font: ImageFont.FreeTypeFont,
-    primary_font: ImageFont.FreeTypeFont,
-    fill: tuple[int, int, int],
-    outline: tuple[int, int, int],
-    outline_w: int,
-) -> Image.Image:
-    """把缺字的粗黑体膨胀到和琥珀体「年」差不多的字高、笔画粗细。"""
-    canvas = Image.new("L", (fallback_font.size * 4, fallback_font.size * 4), 0)
-    ImageDraw.Draw(canvas).text((6, 6), ch, font=fallback_font, fill=255)
-    bb = canvas.getbbox()
-    if not bb:
-        return Image.new("RGBA", (4, 4), (0, 0, 0, 0))
-    mask = canvas.crop(bb).filter(ImageFilter.MaxFilter(5))
-    probe = primary_font.getbbox("年") or (0, 0, 40, 40)
-    target_h = max(8, probe[3] - probe[1])
-    target_w = max(1, int(mask.width * (target_h / max(1, mask.height))))
-    mask = mask.resize((target_w, target_h), Image.Resampling.BILINEAR)
-    pad = outline_w + 2
-    out = Image.new("RGBA", (target_w + pad * 2, target_h + pad * 2), (0, 0, 0, 0))
-    stroke = mask.filter(ImageFilter.MaxFilter(max(3, outline_w * 2 + 1)))
-    stroke_rgba = Image.new("RGBA", stroke.size, outline + (0,))
-    stroke_rgba.putalpha(stroke)
-    out.paste(stroke_rgba, (pad - outline_w, pad - outline_w), stroke_rgba)
-    fill_rgba = Image.new("RGBA", mask.size, fill + (0,))
-    fill_rgba.putalpha(mask)
-    out.paste(fill_rgba, (pad, pad), fill_rgba)
-    return out
-
-
 def render_slanted_line(
     text: str,
     primary_font: ImageFont.FreeTypeFont,
@@ -170,23 +139,17 @@ def render_slanted_line(
         outline_color = typography.outline_rgb
         outline_width = typography.outline_width
         shear = typography.shear_factor
+    text = fit_hupo_text(text)
     chars_info = []
     total_w = 0.0
     max_h = 30
-    glyphs: list[Optional[Image.Image]] = []
     for ch in text:
-        if _font_has_glyph(primary_font, ch):
-            use_font = primary_font
-            glyph = None
-            ch_w = use_font.getlength(ch)
-            box = use_font.getbbox(ch)
-        else:
-            use_font = fallback_font
-            glyph = _thick_fallback_glyph(ch, fallback_font, primary_font, fill, outline_color, outline_width)
-            ch_w = float(glyph.width)
-            box = (0, 0, glyph.width, glyph.height)
-        glyphs.append(glyph)
-        chars_info.append((ch, use_font, ch_w, glyph is not None))
+        # 缺字直接跳过，避免再混进另一种字体
+        if not _font_has_glyph(primary_font, ch):
+            continue
+        ch_w = primary_font.getlength(ch)
+        box = primary_font.getbbox(ch)
+        chars_info.append((ch, primary_font, ch_w))
         total_w += ch_w
         if box:
             max_h = max(max_h, box[3] - box[1])
@@ -200,15 +163,12 @@ def render_slanted_line(
     curr_x = 20.0
     y_off = 10
 
-    for (ch, use_font, ch_w, is_fallback), glyph in zip(chars_info, glyphs):
-        if glyph is not None:
-            layer.paste(glyph, (int(curr_x), y_off), glyph)
-        else:
-            for dx in range(-outline_width, outline_width + 1):
-                for dy in range(-outline_width, outline_width + 1):
-                    if dx * dx + dy * dy <= outline_width * outline_width:
-                        d.text((curr_x + dx, y_off + dy), ch, fill=outline_color, font=use_font)
-            d.text((curr_x, y_off), ch, fill=fill, font=use_font)
+    for ch, use_font, ch_w in chars_info:
+        for dx in range(-outline_width, outline_width + 1):
+            for dy in range(-outline_width, outline_width + 1):
+                if dx * dx + dy * dy <= outline_width * outline_width:
+                    d.text((curr_x + dx, y_off + dy), ch, fill=outline_color, font=use_font)
+        d.text((curr_x, y_off), ch, fill=fill, font=use_font)
         curr_x += ch_w
 
     m = (1, shear, -shear * (total_h_int / 2), 0, 1, 0)
@@ -728,6 +688,43 @@ def _load_tilted_orbit(y_shift: int = 0) -> Image.Image:
     return layer
 
 
+def _poster_name_layer(name: str, typography) -> Image.Image:
+    """账号封面：照片上的大号黄字黑边植物名，和正文同一套琥珀体。"""
+    name = "".join(ch for ch in fit_hupo_text(name or "") if not ch.isspace())
+    layer = _blank_canvas()
+    if not name:
+        return layer
+    size = 200 if len(name) <= 2 else 156 if len(name) <= 3 else 112
+    font, fallback = typography.resolve_fonts(size)
+    while font.getlength(name) > 900 and size > 72:
+        size -= 8
+        font, fallback = typography.resolve_fonts(size)
+    if len(name) > 4 and font.getlength(name) > 860:
+        mid = (len(name) + 1) // 2
+        lines = [name[:mid], name[mid:]]
+    else:
+        lines = [name]
+    chips = [
+        render_slanted_line(
+            line,
+            font,
+            fallback,
+            fill=typography.fill_rgb,
+            outline_color=(0, 0, 0),
+            outline_width=8,
+            shear=typography.shear_factor,
+        )
+        for line in lines
+    ]
+    gap = 6
+    block_h = sum(chip.height for chip in chips) + gap * (len(chips) - 1)
+    y = 1180 - block_h // 2
+    for chip in chips:
+        layer.paste(chip, ((V_WIDTH - chip.width) // 2, int(y)), chip)
+        y += chip.height + gap
+    return layer
+
+
 def _bind_motion(slide: SlideData, kind: str, layers: dict[str, Image.Image]) -> SlideData:
     slide.kind = kind
     slide.layers = layers
@@ -757,122 +754,14 @@ def render_trivia_slides(
             return ""
         return local_images[idx % len(local_images)]
 
-    # ------------------ SLIDE 1: 封面（分层，方便药材盘放大和文字先后入场） ------------------
-    title_l = _blank_canvas()
-    draw_cloud_banner(title_l, "每日认识一种植物", y_pos=147, font_size=74, x_scale=1.36)
-
-    badge_l = _blank_canvas()
-    f_sub = get_banner_font(64)
-    badge_chip = render_relief_gold_text(f"（ {script.cover_badge} ）", f_sub, halo=5, x_scale=1.32)
-    badge_l.paste(badge_chip, (V_WIDTH // 2 - badge_chip.width // 2, 277 - badge_chip.height // 2), badge_chip)
-
-    pc1, pos1 = create_dish_card(get_img(0), size=680)
-
-    pinyin_l = _blank_canvas()
-    py_draw = ImageDraw.Draw(pinyin_l)
-    f_py = get_latin_pinyin_font(72)
-    py_x, py_y = V_WIDTH // 2, 1168
-    for dx in range(-10, 11):
-        for dy in range(-10, 11):
-            if dx * dx + dy * dy <= 100:
-                py_draw.text((py_x + dx, py_y + dy), script.pinyin, fill=(220, 60, 75, 140), font=f_py, anchor="mm")
-    draw_text_with_outline(
-        py_draw, (py_x, py_y), script.pinyin, f_py,
-        fill=(255, 255, 255), outline_color=(190, 55, 68), outline_width=2, anchor="mm"
-    )
-
-    f_name_size = 124
-    f_name = get_calligraphy_font(f_name_size)
-    while f_name.getlength(script.plant_name) > 760 and f_name_size > 64:
-        f_name_size -= 6
-        f_name = get_calligraphy_font(f_name_size)
-    name_box = f_name.getbbox(script.plant_name)
-    nw = (name_box[2] - name_box[0]) if name_box else 300
-    nh = (name_box[3] - name_box[1]) if name_box else 120
-    pad_box = 90
-    name_chip = Image.new("RGBA", (nw + pad_box, nh + pad_box), (0, 0, 0, 0))
-    nd = ImageDraw.Draw(name_chip)
-    cx_n, cy_n = (nw + pad_box) // 2, (nh + pad_box) // 2
-    for dx in range(-8, 9):
-        for dy in range(-8, 9):
-            if dx * dx + dy * dy <= 64:
-                nd.text((cx_n + dx, cy_n + dy), script.plant_name, fill=(210, 40, 55, 150), font=f_name, anchor="mm")
-    for dx in range(-3, 4):
-        for dy in range(-3, 4):
-            if dx * dx + dy * dy <= 9:
-                nd.text((cx_n + dx, cy_n + dy), script.plant_name, fill=(255, 255, 255), font=f_name, anchor="mm")
-    nd.text((cx_n, cy_n), script.plant_name, fill=(198, 72, 86), font=f_name, anchor="mm")
-    shear_n = -0.12
-    m_name = (1, shear_n, -shear_n * ((nh + pad_box) / 2), 0, 1, 0)
-    slanted_name = name_chip.transform(
-        (nw + pad_box + 50, nh + pad_box), Image.Transform.AFFINE, m_name, Image.Resampling.BILINEAR
-    )
-    name_l = _blank_canvas()
-    name_scaled = slanted_name.resize(
-        (max(1, int(slanted_name.width * 1.15)), slanted_name.height),
-        Image.Resampling.LANCZOS,
-    )
-    _paste_at_center_y(name_l, name_scaled, 1310)
-
-    orbit_cover_shifted = _load_tilted_orbit(y_shift=-36)
-
-    import re
-    clean_aliases = re.sub(r"\(.*?\)|（.*?）", "", script.aliases).strip()
-    clean_aliases = re.sub(r"[、,，\s]+", "、", clean_aliases).strip("、")
-    if len(clean_aliases) > 18:
-        clean_aliases = clean_aliases[:18] + "…"
-
-    f_meta, f_fb = typography.resolve_fonts(52)
-
-    def render_meta_line(label: str, val: str) -> Image.Image:
-        l_chars = [(ch, f_meta if _font_has_glyph(f_meta, ch) else f_fb, (255, 255, 255)) for ch in label]
-        v_chars = [(ch, f_meta if _font_has_glyph(f_meta, ch) else f_fb, typography.fill_rgb) for ch in val]
-        all_chars = l_chars + v_chars
-        tot_w = sum(f.getlength(ch) for ch, f, _ in all_chars)
-        tot_w_int = int(tot_w) + 60
-        tot_h_int = 78
-        lay = Image.new("RGBA", (tot_w_int, tot_h_int), (0, 0, 0, 0))
-        ld = ImageDraw.Draw(lay)
-        curr_x = 20.0
-        y_off = 10
-        ow = typography.outline_width
-        for ch, f, col in all_chars:
-            for dx in range(-ow, ow + 1):
-                for dy in range(-ow, ow + 1):
-                    if dx * dx + dy * dy <= ow * ow:
-                        ld.text((curr_x + dx, y_off + dy), ch, fill=typography.outline_rgb, font=f)
-            offsets = ((0, 0),) if f is f_meta else ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1))
-            for ox, oy in offsets:
-                ld.text((curr_x + ox, y_off + oy), ch, fill=col, font=f)
-            curr_x += f.getlength(ch)
-        m = (1, typography.shear_factor, -typography.shear_factor * (tot_h_int / 2), 0, 1, 0)
-        return lay.transform((tot_w_int + 30, tot_h_int), Image.Transform.AFFINE, m, Image.Resampling.BILINEAR)
-
-    meta_l = _blank_canvas()
-    m1 = render_meta_line("别名：", clean_aliases)
-    m2 = render_meta_line("科属：", script.family_genus)
-    m1 = m1.resize((max(1, int(m1.width * 1.12)), m1.height), Image.Resampling.LANCZOS)
-    m2 = m2.resize((max(1, int(m2.width * 1.12)), m2.height), Image.Resampling.LANCZOS)
-    ink = m1.getchannel("A").getbbox() or (0, 0, m1.width, m1.height)
-    left = (V_WIDTH - (ink[2] - ink[0])) // 2 - ink[0]
-    meta_l.paste(m1, (left, 1466 - m1.height // 2), m1)
-    meta_l.paste(m2, (left, 1556 - m2.height // 2), m2)
-
-    text_cover = _blank_canvas()
-    for layer in (title_l, badge_l, orbit_cover_shifted, pinyin_l, name_l, meta_l):
-        text_cover.paste(layer, (0, 0), layer)
-    fs1 = bg.copy()
-    fs1.paste(pc1, pos1, pc1)
-    fs1.paste(text_cover, (0, 0), text_cover)
-    cover = SlideData(fs1.convert("RGB"), text_cover, pc1, pos1)
-    slides.append(_bind_motion(cover, "cover", {
-        "title": title_l,
-        "badge": badge_l,
-        "orbit": orbit_cover_shifted,
-        "pinyin": pinyin_l,
-        "name": name_l,
-        "meta": meta_l,
-    }))
+    # ------------------ SLIDE 1: 账号封面（整图 + 大号黄字植物名） ------------------
+    cover_src = get_img(1) if len(local_images) > 1 else get_img(0)
+    photo = create_fullscreen_photo(cover_src, w=V_WIDTH, h=V_HEIGHT)
+    name_l = _poster_name_layer(script.plant_name, typography)
+    full = photo.copy()
+    full.paste(name_l, (0, 0), name_l)
+    cover = SlideData(full.convert("RGB"), name_l, photo, (0, 0))
+    slides.append(_bind_motion(cover, "cover", {"name": name_l}))
 
     # ------------------ 通用内容 Slide 构造器 (Slide 2, 3, 4) ------------------
     def _build_content_slide(title: str, text: str, img_idx: int):

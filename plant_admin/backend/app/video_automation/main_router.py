@@ -190,6 +190,7 @@ def _async_semantic_video_worker(
                 if not success:
                     _update_task(task_id, status="failed", progress_percentage=100, current_step="趣闻视频压制失败", message=msg)
                     return
+                voice_note = msg if msg and not os.path.exists(msg) else ""
             else:
                 _update_task(task_id, progress_percentage=25, current_step=f"开始为单植物 [{pdata.get('vernacular_name')}] 渲染 6 帧画卷...")
                 
@@ -229,12 +230,15 @@ def _async_semantic_video_worker(
                 return
 
         video_url = f"/api/media/plants/videos/{output_filename}"
+        done = f"【{topic_title}】视频已由 [{model_title}] 为您打造完成！涵盖 {len(plants)} 种精选植物。"
+        if "voice_note" in locals() and voice_note:
+            done = f"{voice_note} {done}"
         _update_task(
             task_id,
             status="completed",
             progress_percentage=100,
             current_step="生成成功！",
-            message=f"【{topic_title}】视频已由 [{model_title}] 为您打造完成！涵盖 {len(plants)} 种精选植物。",
+            message=done,
             result_video_url=video_url
         )
 
