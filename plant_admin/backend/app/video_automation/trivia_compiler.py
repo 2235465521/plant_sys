@@ -390,9 +390,9 @@ def build_final_audio(
     fps: int = FPS
 ) -> bool:
     """
-    使用 FFmpeg 滤镜链拼接各幕语音，并与 BGM（22%音量）进行混流：
+    使用 FFmpeg 滤镜链拼接各幕语音，并与 BGM（约 6% 音量）进行混流：
     - 按各幕 static_frames 与 TRANSITION_FRAMES 精确计算人声起点
-    - 人声音量 100%，背景音乐柔和，结尾 1.0s 平滑淡出
+    - 人声略微抬高，背景只作铺垫，结尾 1.0s 平滑淡出
     - 输出音频时长与视频总帧数严格对齐
     """
     exe = imageio_ffmpeg.get_ffmpeg_exe()
@@ -454,9 +454,10 @@ def build_final_audio(
     filter_parts.append(amix_voice)
 
     if has_bgm:
-        # BGM 循环并降低音量至 22%，裁切至总时长并柔和淡出
-        filter_parts.append(f"[{bgm_idx}:a]aloop=loop=-1:size=2e+09,volume=0.22,atrim=0:{total_sec:.2f}[bgm_soft]")
-        filter_parts.append(f"[vocal][bgm_soft]amix=inputs=2:duration=longest:dropout_transition=0,atrim=0:{total_sec:.2f},afade=t=out:st={fade_start:.2f}:d=1.0[aout]")
+        # 人声抬高，背景压到约 6%，避免配乐盖过解说
+        filter_parts.append("[vocal]volume=1.6[vocal_loud]")
+        filter_parts.append(f"[{bgm_idx}:a]aloop=loop=-1:size=2e+09,volume=0.06,atrim=0:{total_sec:.2f}[bgm_soft]")
+        filter_parts.append(f"[vocal_loud][bgm_soft]amix=inputs=2:normalize=0:duration=longest:dropout_transition=0,atrim=0:{total_sec:.2f},afade=t=out:st={fade_start:.2f}:d=1.0[aout]")
         map_out = "[aout]"
     else:
         filter_parts.append(f"[vocal]apad=pad_dur={total_sec:.2f},atrim=0:{total_sec:.2f},afade=t=out:st={fade_start:.2f}:d=1.0[aout]")

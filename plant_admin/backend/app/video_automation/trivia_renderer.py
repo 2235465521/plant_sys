@@ -67,6 +67,28 @@ def get_banner_font(size: int) -> ImageFont.FreeTypeFont:
     return get_system_font(size, bold=True)
 
 
+def get_poster_font(size: int) -> ImageFont.FreeTypeFont:
+    """
+    封面贴纸字。优先用仓库里的站酷快乐体，服务器上没有华文琥珀时也能和账号封面同一类圆字。
+    """
+    bundled = FONTS_DIR / "ZCOOLKuaiLe-Regular.ttf"
+    candidates = [
+        str(bundled) if bundled.exists() else "",
+        "C:\\Windows\\Fonts\\STHUPO.TTF",
+        "C:\\Windows\\Fonts\\SIMYOU.TTF",
+        "C:\\Windows\\Fonts\\msyhbd.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            try:
+                return ImageFont.truetype(c, size)
+            except Exception:
+                pass
+    return get_calligraphy_font(size)
+
+
 def get_calligraphy_font(size: int) -> ImageFont.FreeTypeFont:
     """
     获取样片正文字体（华文琥珀 > 幼圆 > 微软雅黑粗体 > 仓库字体）。
@@ -696,14 +718,13 @@ def _poster_name_layer(name: str, typography) -> Image.Image:
     layer = _blank_canvas()
     if not name:
         return layer
-    # 两三个字要占满画面中部；更长的名字再缩小或拆成两行
-    size = 300 if len(name) <= 2 else 220 if len(name) <= 3 else 150
-    font, fallback = typography.resolve_fonts(size)
-    while font.getlength(name) > 860 and size > 88:
-        size -= 10
-        font, fallback = typography.resolve_fonts(size)
-    outline = max(14, size // 16)
-    if len(name) > 4 and font.getlength(name) > 820:
+    size = 340 if len(name) <= 2 else 240 if len(name) <= 3 else 160
+    font = get_poster_font(size)
+    while font.getlength(name) > 900 and size > 96:
+        size -= 12
+        font = get_poster_font(size)
+    outline = max(18, size // 12)
+    if len(name) > 4 and font.getlength(name) > 880:
         mid = (len(name) + 1) // 2
         lines = [name[:mid], name[mid:]]
     else:
@@ -712,7 +733,7 @@ def _poster_name_layer(name: str, typography) -> Image.Image:
         render_slanted_line(
             line,
             font,
-            fallback,
+            font,
             fill=(255, 214, 0),
             outline_color=(0, 0, 0),
             outline_width=outline,
@@ -743,11 +764,11 @@ def _poster_alias_layer(name: str, aliases: str, typography) -> Image.Image:
     text = "、".join(parts[:3])
     if len(text) > 18:
         text = text[:18] + "…"
-    font, fallback = typography.resolve_fonts(58)
+    font = get_poster_font(64)
     chip = render_slanted_line(
         f"别名：{text}",
         font,
-        fallback,
+        font,
         fill=(255, 214, 0),
         outline_color=(0, 0, 0),
         outline_width=6,
